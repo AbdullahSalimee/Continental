@@ -10,7 +10,7 @@ const links = [
   { href: "/projects", label: "Registry" },
   { href: "/inbox", label: "Inbox" },
   { href: "/access", label: "Access" },
-  { href: "/leadflow", label: "LeadFlow" },
+ 
 ];
 
 export default function TopNav({

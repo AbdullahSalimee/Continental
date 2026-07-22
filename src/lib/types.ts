@@ -19,6 +19,7 @@ export interface Branch {
   name: string;
   focus: string;
   createdAt: string;
+  branchType: "standard" | "no_clients";
   // Free-form rules text — KDH's business rules live here as data, not logic,
   // so they can be represented/displayed without being hard-coded into the app.
   notes?: string;
@@ -36,7 +37,11 @@ export interface Department {
   successMetric?: string; // e.g. "leads won" for LeadFlow — not "leads added"
 }
 
-export type RoleName = "superadmin" | "developer" | "department_member" | string; // extensible
+export type RoleName =
+  | "superadmin"
+  | "developer"
+  | "department_member"
+  | string; // extensible
 
 export interface Role {
   id: ID;
@@ -69,7 +74,11 @@ export type ProjectStatus =
 
 export type HostingPlatform = "vercel" | "netlify" | "other" | string;
 
-export type SyncSource = "vercel_api" | "github_api" | "supabase_api" | "manual";
+export type SyncSource =
+  | "vercel_api"
+  | "github_api"
+  | "supabase_api"
+  | "manual";
 
 export interface SyncStamp {
   source: SyncSource;
@@ -184,8 +193,15 @@ export interface AuditLogEntry {
 export interface LeadFlowLead {
   id: ID;
   clientName: string;
-  city: string;
-  status: "new" | "contacted" | "negotiating" | "won" | "lost" | string;
-  ownerPersonId: ID;
+  source?: string;
+  status:
+    | "new"
+    | "contacted"
+    | "interested"
+    | "negotiation"
+    | "won"
+    | "lost"
+    | string;
+  employeeName?: string; // Supabase profiles.full_name — no shared identity with this app's Person table
   createdAt: string;
 }

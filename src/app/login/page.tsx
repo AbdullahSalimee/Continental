@@ -1,6 +1,10 @@
 import { loginAction } from "@/app/actions";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const { error } = await searchParams;
 
   return (
@@ -10,11 +14,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <span className="pulse-dot absolute inline-flex h-full w-full rounded-full bg-live" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-live" />
         </span>
-        <h1 className="font-display text-xl font-semibold tracking-tight">Continental OS</h1>
-        <p className="mt-1 text-sm text-text-muted">Sign in with your Continental account.</p>
+        <h1 className="font-display text-xl font-semibold tracking-tight">
+          Continental OS
+        </h1>
+        <p className="mt-1 text-sm text-text-muted">
+          Sign in with your Continental account.
+        </p>
       </div>
 
-      <form action={loginAction} className="space-y-3 rounded-xl border border-border bg-panel p-5">
+      <form
+        action={loginAction}
+        className="space-y-3 rounded-xl border border-border bg-panel p-5"
+      >
         {error && (
           <p className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
             Incorrect email or password.
@@ -47,17 +58,6 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           Sign in
         </button>
       </form>
-
-      <div className="mt-4 rounded-lg border border-border-soft bg-panel/50 p-4 text-xs text-text-faint">
-        <p className="mb-1.5 font-mono uppercase tracking-wide text-text-faint">Seeded demo accounts</p>
-        <p>All seeded people share the password <span className="font-mono text-text-muted">continental-demo</span>. Try:</p>
-        <ul className="mt-1.5 space-y-0.5 font-mono">
-          <li>sam@continental.internal — superadmin</li>
-          <li>ali@continental.internal — developer</li>
-          <li>hina@kdh.internal — LeadFlow (department member)</li>
-        </ul>
-        <p className="mt-2">Rotate these before this touches real company data.</p>
-      </div>
     </div>
   );
 }

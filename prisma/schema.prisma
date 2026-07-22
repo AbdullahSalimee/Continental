@@ -49,6 +49,7 @@ model Branch {
   name      String
   focus     String
   notes     String?
+  branchType String  @default("standard") // "standard" | "no_clients" — drives which fields/forms show per branch
   createdAt DateTime @default(now())
 
   departments Department[]
@@ -138,13 +139,14 @@ model Project {
 }
 
 model SyncStamp {
-  id           String   @id @default(cuid())
-  projectId    String
-  project      Project  @relation(fields: [projectId], references: [id])
-  source       String   // vercel_api | github_api | supabase_api | manual
-  accountLabel String
-  lastSeenAt   DateTime
-  reachable    Boolean?
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id])
+  source          String   // vercel_api | github_api | supabase_api | manual
+  accountLabel    String
+  lastSeenAt      DateTime
+  reachable       Boolean?
+  assignedBranchId String? // which branch this project was placed in as of this sync (null = left Unassigned)
 }
 
 // ── Module B: Unified Inbox ──────────────────────────────────────────────────
