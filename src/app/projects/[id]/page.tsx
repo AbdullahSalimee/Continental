@@ -1,15 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { projects, branches, clients, accessGrants, people } from "@/lib/store";
+import { requireCurrentUser } from "@/lib/session";
+import { getProjectById, getBranches, getClients, getAccessGrants, getPeople } from "@/lib/store";
 import { projectDrift } from "@/lib/analytics";
 import { timeAgo, sourceLabel } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireCurrentUser();
   const { id } = await params;
-  const project = projects.find((p) => p.id === id);
+  const project = await getProjectById(id);
   if (!project) notFound();
 
+  const [branches, clients, accessGrants, people] = await Promise.all([getBranches(), getClients(), getAccessGrants(), getPeople()]);
   const branch = branches.find((b) => b.id === project.branchId);
   const client = clients.find((c) => c.id === project.clientId);
   const owners = people.filter((p) => project.ownerPersonIds.includes(p.id));

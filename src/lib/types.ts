@@ -119,6 +119,7 @@ export interface InboxAccount {
   label: string; // e.g. "taste-support@..."
   strategy: "polling" | "forwarding";
   linkedProjectId?: ID;
+  connected?: boolean; // true once a real Gmail OAuth refresh token is on file
 }
 
 export interface InboxMessage {

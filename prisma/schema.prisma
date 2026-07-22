@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+// Person IS the app's user record (no separate "User" model) — auth fields
+// live directly on it so there's one identity table, not two that can drift.
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  people      Person[]
+}
+
+model Person {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  roleId       String
+  role         Role     @relation(fields: [roleId], references: [id])
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  branches    Branch[]     @relation("PersonBranches")
+  departments Department[] @relation("PersonDepartments")
+
+  ownedProjects        Project[]               @relation("ProjectOwners")
+  grantsReceived       AccessGrant[]           @relation("GrantsToPerson")
+  grantsIssued         AccessGrant[]           @relation("GrantsByPerson")
+  auditActions         AuditLogEntry[]         @relation("AuditActor")
+  profitEntries        ProfitEntry[]           @relation("ProfitRecordedBy")
+  focusNotes           BranchFocusNote[]       @relation("FocusNoteBy")
+  leadFlowLeads        LeadFlowLead[]          @relation("LeadOwner")
+  ownedExternalAccts   ExternalAccount[]       @relation("ExternalAccountOwner")
+  externalAccountAccess ExternalAccountAccess[]
+}
+
+// ── Reference data (open/extensible) ────────────────────────────────────────
+
+model Branch {
+  id        String   @id @default(cuid())
+  name      String
+  focus     String
+  notes     String?
+  createdAt DateTime @default(now())
+
+  departments Department[]
+  projects    Project[]
+  clients     Client[]
+  profitEntries ProfitEntry[]
+  focusNote   BranchFocusNote?
+  people      Person[] @relation("PersonBranches")
+}
+
+model Department {
+  id               String  @id @default(cuid())
+  branchId         String
+  branch           Branch  @relation(fields: [branchId], references: [id])
+  name             String
+  isRestricted     Boolean @default(false)
+  restrictedReason String?
+  successMetric    String?
+  people           Person[] @relation("PersonDepartments")
+  projects         Project[]
+}
+
+model Client {
+  id            String   @id @default(cuid())
+  name          String
+  branchId      String
+  branch        Branch   @relation(fields: [branchId], references: [id])
+  isOutOfDomain Boolean  @default(false)
+  notes         String?
+  projects      Project[]
+}
+
+// ── Module A: Project Registry ──────────────────────────────────────────────
+
+model ExternalAccount {
+  id             String   @id @default(cuid())
+  platform       String   // vercel | github | supabase | google | other — open list
+  label          String   // e.g. "remake-labs+vercel1@gmail.com"
+  vaultReference String?  // link into Bitwarden/etc — never a raw secret
+  ownerPersonId  String?
+  owner          Person?  @relation("ExternalAccountOwner", fields: [ownerPersonId], references: [id])
+  createdAt      DateTime @default(now())
+
+  projects    Project[]
+  accessList  ExternalAccountAccess[]
+  inboxAccounts InboxAccount[]
+}
+
+model ExternalAccountAccess {
+  id                String          @id @default(cuid())
+  externalAccountId String
+  externalAccount   ExternalAccount @relation(fields: [externalAccountId], references: [id])
+  personId          String
+  person            Person          @relation(fields: [personId], references: [id])
+  grantedAt         DateTime        @default(now())
+
+  @@unique([externalAccountId, personId])
+}
+
+model Project {
+  id                 String    @id @default(cuid())
+  name               String
+  branchId           String
+  branch             Branch    @relation(fields: [branchId], references: [id])
+  departmentId       String?
+  department         Department? @relation(fields: [departmentId], references: [id])
+  liveUrl            String?
+  previewUrls        String?   // JSON-encoded string[]
+  hostingPlatform    String?
+  externalAccountId  String?
+  externalAccount    ExternalAccount? @relation(fields: [externalAccountId], references: [id])
+  repoUrl            String?
+  databaseRef        String?
+  status             String
+  clientId           String?
+  client             Client?   @relation(fields: [clientId], references: [id])
+  deliveryModel      String?
+  createdAt          DateTime  @default(now())
+  lastKnownUpdateAt  DateTime  @default(now())
+  notes              String?
+  source             String    // auto | manual | auto+manual
+
+  owners       Person[]       @relation("ProjectOwners")
+  syncStamps   SyncStamp[]
+  inboxAccounts InboxAccount[]
+  inboxMessages InboxMessage[]
+}
+
+model SyncStamp {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id])
+  source       String   // vercel_api | github_api | supabase_api | manual
+  accountLabel String
+  lastSeenAt   DateTime
+  reachable    Boolean?
+}
+
+// ── Module B: Unified Inbox ──────────────────────────────────────────────────
+
+model InboxAccount {
+  id                 String   @id @default(cuid())
+  label              String
+  strategy           String   // polling | forwarding
+  linkedProjectId    String?
+  linkedProject      Project? @relation(fields: [linkedProjectId], references: [id])
+  externalAccountId  String?
+  externalAccount    ExternalAccount? @relation(fields: [externalAccountId], references: [id])
+  googleRefreshToken String?  // present once a real Gmail OAuth connection is completed
+  lastPolledAt       DateTime?
+
+  messages InboxMessage[]
+}
+
+model InboxMessage {
+  id                 String    @id @default(cuid())
+  accountId          String
+  account            InboxAccount @relation(fields: [accountId], references: [id])
+  from               String
+  subject            String
+  snippet            String
+  receivedAt         DateTime
+  handled            Boolean   @default(false)
+  inferredProjectId  String?
+  inferredProject    Project?  @relation(fields: [inferredProjectId], references: [id])
+  gmailMessageId     String?   @unique
+}
+
+// ── Module C: Branch Intelligence ───────────────────────────────────────────
+
+model ProfitEntry {
+  id                 String   @id @default(cuid())
+  branchId           String
+  branch             Branch   @relation(fields: [branchId], references: [id])
+  amount             Float
+  currency           String
+  note               String
+  recordedAt         DateTime @default(now())
+  recordedByPersonId String
+  recordedBy         Person   @relation("ProfitRecordedBy", fields: [recordedByPersonId], references: [id])
+  verified           String   @default("self_reported")
+}
+
+model BranchFocusNote {
+  id                String   @id @default(cuid())
+  branchId          String   @unique
+  branch            Branch   @relation(fields: [branchId], references: [id])
+  note              String
+  updatedAt         DateTime @updatedAt
+  updatedByPersonId String
+  updatedBy         Person   @relation("FocusNoteBy", fields: [updatedByPersonId], references: [id])
+}
+
+// ── Module D: Access & Ownership ────────────────────────────────────────────
+
+model AccessGrant {
+  id                 String    @id @default(cuid())
+  personId           String
+  person             Person    @relation("GrantsToPerson", fields: [personId], references: [id])
+  targetType         String    // project | branch | department
+  targetId           String
+  level              String    // owner | editor | viewer
+  vaultReference     String?
+  grantedAt          DateTime  @default(now())
+  grantedByPersonId  String
+  grantedBy          Person    @relation("GrantsByPerson", fields: [grantedByPersonId], references: [id])
+  expiresAt          DateTime?
+}
+
+model AuditLogEntry {
+  id                String   @id @default(cuid())
+  at                DateTime @default(now())
+  actorPersonId     String
+  actor             Person   @relation("AuditActor", fields: [actorPersonId], references: [id])
+  action            String
+  targetDescription String
+  sensitive         Boolean  @default(false)
+}
+
+model LeadFlowLead {
+  id            String   @id @default(cuid())
+  clientName    String
+  city          String
+  status        String
+  ownerPersonId String
+  owner         Person   @relation("LeadOwner", fields: [ownerPersonId], references: [id])
+  createdAt     DateTime @default(now())
+}

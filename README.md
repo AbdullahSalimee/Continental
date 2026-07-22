@@ -3,154 +3,148 @@
 An internal operations command center for Continental and its branches (Remake Labs,
 KDH, and whatever gets added next). Built from the Continental OS Pre-Doc PRD.
 
-This is a **working, runnable scaffold** — not a mockup. Every page is real, the RBAC
-and LeadFlow-isolation logic actually executes, and the sync routes have a genuine
-integration path documented in code. What it is *not*, yet, is connected to your real
-Vercel/GitHub/Supabase/Gmail accounts — that requires your tokens, which obviously
-couldn't be included here. See "Wiring up real automation" below.
+This is a **working, runnable application** with real persistence and real
+authentication — not a mockup, and not a demo that resets when you restart it.
+
+## What changed since the first pass
+
+An earlier version of this shipped with an in-memory store and a client-side
+role-switcher dropdown. Both were correctly flagged as gaps and have been replaced:
+
+| Gap | Fixed by |
+|---|---|
+| In-memory data, resets on restart | **SQLite via Prisma** (`prisma/schema.prisma`). Persists across restarts. |
+| Client-side role dropdown — anyone could "pick" superadmin | **Auth.js (NextAuth v5)** with a Credentials provider, bcrypt password hashes, real signed sessions. Every page calls `requireCurrentUser()` server-side. |
+| LeadFlow visibility only logged on grant/revoke, not on view | LeadFlow page writes an audit row (`view_leadflow` or `denied_leadflow_attempt`) on **every load**, granted or denied. |
+| Module D tracked in-app grants only, not real external logins | Added `ExternalAccount` + `ExternalAccountAccess` models — Module D now shows who owns and who shares each actual Vercel/GitHub/Supabase/Google login. |
+| Sync routes were manual-trigger only | Added `/api/cron` + `vercel.json` cron schedule (every 6h), protected by `CRON_SECRET`. Manual trigger (superadmin session) still works from the UI. |
+| Gmail was fully faked (static seed data, no wiring) | Real per-inbox OAuth flow (`/api/gmail/connect` → Google consent → `/api/gmail/callback`) and a real polling route (`/api/sync/gmail`) using `googleapis`. Needs your own Google Cloud OAuth app credentials to activate — see below. |
+
+**One bug this round of testing caught and fixed:** the RBAC check for LeadFlow
+originally only allowed superadmins or people holding an explicit `AccessGrant` —
+it forgot that actual LeadFlow *staff* (people whose `departmentIds` includes the
+department) should see their own department's data by default, per the PRD's own
+"Department member — visibility limited to their own department's tools" rule.
+Tested with four real logged-in sessions (superadmin, LeadFlow staff, a developer
+with a temporary grant, and a true outsider with neither) before and after the fix
+— see `src/lib/rbac.ts`.
 
 ## Stack
 
-- **Next.js 16** (App Router, TypeScript) — chosen over plain HTML/CSS because the
-  system needs real server-side API routes (sync jobs, RBAC-checked data access) and
-  a component model that scales to four interlocking modules. A static site couldn't
-  do the automation half of this PRD at all.
-- **Tailwind CSS v4** for styling.
-- **Framer Motion** for the motion system (page reveals, nav indicator, ticker, list transitions).
-- **lucide-react** available for iconography if you extend the UI.
+- **Next.js 16** (App Router, TypeScript, all pages are real server components hitting a real database)
+- **Prisma + SQLite** for persistence (swap the datasource for Postgres in production — see below)
+- **Auth.js (NextAuth v5)** for real, server-verified sessions
+- **Tailwind CSS v4** for styling, **Framer Motion** for the motion system
+- **googleapis** for real Gmail OAuth + polling
 
 ### On "uipro init --ai claude"
 
-I didn't run this — it's not a recognized package/CLI in the public npm or Anthropic
-ecosystem, so I couldn't verify what it does or use it safely. I used the standard,
-verifiable path instead: `create-next-app` (TypeScript + Tailwind + App Router) plus
-`npm i framer-motion`. If `uipro` refers to something specific you have installed
-locally, tell me what it does and I can adapt the project to it.
-
-## Design direction
-
-Continental OS is framed as a mission-control console, not a SaaS dashboard: dark
-canvas, a signature **live sync telemetry ticker** at the top of the Overview and
-Registry pages (a scrolling readout of real automated sync events), status expressed
-as colored data rather than icons, and Space Grotesk / Inter / JetBrains Mono for
-display / body / data type respectively. The telemetry ticker is the one deliberately
-bold element — it's there specifically to make the PRD's central thesis ("automation
-carries the primary load, not manual entry") visible at a glance, every time you open
-the app.
-
-## Project structure
-
-```
-src/
-  lib/
-    types.ts          Shared domain model for all four modules
-    store.ts           In-memory data layer + seed data (see note below)
-    rbac.ts             Access-control logic, incl. LeadFlow isolation
-    analytics.ts        Derived rollups for the Branch Dashboard (Module C)
-    role-context.tsx    Demo role switcher (stand-in for real auth — see below)
-    format.ts           Small display helpers
-  components/           Shared UI: nav, tickers, badges, client-side tables
-  app/
-    page.tsx                     Continental overview (Module C)
-    branches/[branchId]/         Branch detail drill-down
-    projects/                    Project Registry (Module A)
-    projects/[id]/               Project detail + sync history
-    inbox/                       Unified Inbox (Module B)
-    access/                      Access & Ownership Map (Module D)
-    leadflow/                    LeadFlow — the isolation demo
-    api/sync/{vercel,github,supabase}/route.ts   Sync jobs (manual + scheduled trigger)
-    api/inbox/[id]/handle/route.ts               Mark-handled toggle
-```
-
-## How each PRD problem maps to what's actually built
-
-| Problem | Where it lives | What's real today |
-|---|---|---|
-| Infrastructure/deployment amnesia (1, 6) | Module A — `/projects`, `/projects/[id]` | Full schema, drift detector, search/filter, sync history. Sync routes run in "simulated" mode until you add API tokens (see below). |
-| No branch-level visibility (2) | Module C — `/`, `/branches/[id]` | Fully real — rollups are computed live from Module A + D data, never a duplicate stored count. |
-| Manual-only reporting rejected (3) | Cross-cutting | Every automatable field has a sync path; only profit and focus notes are manual, and both are explicitly labeled `self-reported`. |
-| No public identity yet (4) | Architecture note | Nothing here blocks a future public site — branches/projects are structured, typed data, not baked into page markup. |
-| Inbox fragmentation (5) | Module B — `/inbox` | Full triage UI (mark handled, project inference) over seeded messages. Real Gmail polling needs OAuth wiring (see below). |
-| No access map (7) | Module D — `/access` | Fully real — people, roles, grants, audit log, all cross-linked to Module A. |
-| Ad hoc credential storage (8) | Module D | Deliberately *not* rebuilt — `vaultReference` fields store links into a real password manager (Bitwarden suggested; any is fine) rather than secrets. |
-
-## The RBAC / LeadFlow rule — how it's actually enforced
-
-`src/lib/rbac.ts` gates visibility by **data**, not by name-matching "LeadFlow":
-`Department.isRestricted` is the flag, `AccessGrant` rows (with optional `expiresAt`)
-are the only way past it for non-superadmins, and every grant is logged in
-`auditLog`. Try it live: open `/leadflow`, then use the role switcher in the top-right
-to swap between Sam/Co-founder (superadmin — always in), Ali (developer — holds a
-temporary 5-day grant seeded in `store.ts`, so try it before/after editing
-`expiresAt`), and Hina/Bilal (department members with standing access). The page
-enforces this for real, in the render logic, not just visually.
-
-**Important:** the role switcher is a demo convenience so you can explore every
-permission path without standing up auth. Before this touches real company data,
-swap `role-context.tsx`'s source for a real server-verified session (NextAuth, Clerk,
-or similar) issuing a signed session that server components/API routes can trust.
-Every RBAC function already takes plain `person`/`role` data as arguments — this is a
-call-site change, not a rewrite of the permission logic.
-
-## Data layer — the one deliberate deviation from "just wire it up"
-
-The PRD's suggested solutions (Vercel/GitHub/Supabase Management API syncs, Gmail
-polling or forwarding, Bitwarden linkage) are all still the right call and are
-documented/stubbed exactly as specified. The one thing I changed: **Continental OS
-needs its own database**, separate from any Supabase project it's *tracking* as data.
-Right now that's an in-memory store (`store.ts`) so the whole thing runs with zero
-setup — but it resets on every server restart. For real use, swap it for Postgres
-(Prisma or Drizzle) or a dedicated Supabase project that is *not* one of the tracked
-client projects. Every function in `store.ts` is written like a repository layer
-specifically so this swap doesn't touch any page or component.
-
-## Wiring up real automation
-
-Each sync route works in two modes:
-
-- **No token set** → runs in "simulated" mode: it touches existing sync timestamps so
-  you can see what a completed sync looks like, and tells you it's not configured.
-- **Token set** → makes a real API call and upserts into the registry.
-
-Environment variables to set (e.g. in `.env.local`):
-
-```
-VERCEL_API_TOKEN=...
-VERCEL_TEAM_ID=...          # optional
-VERCEL_ACCOUNT_LABEL=...    # how this account should be labeled in the UI
-
-GITHUB_TOKEN=...
-GITHUB_ORG=...
-
-SUPABASE_MANAGEMENT_TOKEN=...
-```
-
-For multiple accounts per platform (the PRD is explicit that this matters — account
-sprawl is one of the root problems), extend each route to loop over a stored list of
-`{ label, token }` pairs instead of a single env var, tagging each synced project with
-its source account (the `SyncStamp.accountLabel` field already supports this).
-
-Gmail is not wired in this scaffold (it needs a full OAuth consent flow, which can't
-be done headlessly). `Module B`'s `InboxAccount.strategy` field already supports
-either path from the PRD (`"polling"` via Gmail API, or `"forwarding"` to one primary
-address) — polling is the better long-term choice since it needs no per-inbox setup,
-but forwarding is faster to stand up if the ten accounts are add-hoc Gmail addresses
-you can log into once.
+Still not a tool I could find or verify, so I used the standard, verifiable path:
+`create-next-app` (TypeScript + Tailwind + App Router) plus `npm i framer-motion`.
 
 ## Running it
 
 ```bash
 npm install
+cp .env.example .env
+# then replace AUTH_SECRET in .env with the output of: openssl rand -base64 32
+npx prisma generate
+npx prisma migrate deploy      # applies the existing migration to a fresh dev.db
+npx prisma db seed             # re-seed if you ever wipe the DB
 npm run dev
 ```
 
-Open http://localhost:3000. Use the role selector top-right to explore every
-visibility path, including the LeadFlow restriction.
+The repo ships with a working `dev.db` already migrated and seeded, so
+`npm install`, setting up `.env`, and `npm run dev` is enough to try it —
+`prisma migrate deploy`/`db seed` are only needed if you delete `dev.db`.
 
-## What I'd do next if this kept going
+Open http://localhost:3000 — you'll land on `/login`.
 
-- Real auth (NextAuth) replacing the demo role switcher.
-- A real database behind `store.ts`.
-- OAuth flows for Gmail + the ability to register multiple Vercel/GitHub/Supabase accounts through the UI itself instead of env vars.
-- Scheduled sync triggers (Vercel Cron or a queue) calling the same API routes already built.
-- Bitwarden's actual API/CLI for the vault linkage, if you want grant creation to also open a "create vault item" flow rather than just storing a reference.
+### Demo accounts (all share the password `continental-demo`)
+
+| Email | Role | What to try |
+|---|---|---|
+| `sam@continental.internal` | superadmin | Sees everything, including LeadFlow and the audit log |
+| `cofounder@continental.internal` | superadmin | Same as Sam |
+| `ali@continental.internal` | developer | Sees Remake Labs projects; has a **temporary 5-day grant** into LeadFlow — try it before/after that expires |
+| `hina@kdh.internal` / `bilal@kdh.internal` | department_member | Actual LeadFlow staff — see LeadFlow by default, nothing else outside their branch |
+
+**Rotate all of these before this touches real company data** — they're seeded with a shared, known password.
+
+## Environment variables
+
+Required (already set in the shipped `.env` for local dev):
+
+```
+DATABASE_URL="file:./dev.db"    # resolved relative to prisma/, so this is prisma/dev.db
+AUTH_SECRET="<a real random secret — regenerate with `openssl rand -base64 32`>"
+AUTH_TRUST_HOST=true   # required when self-hosting outside Vercel's own domain
+```
+
+Optional — each unlocks one piece of real automation. Without them, the relevant
+sync route runs in "simulated" mode (documented in the route itself) so the UI
+still demonstrates the full flow:
+
+```
+VERCEL_API_TOKEN=...
+VERCEL_TEAM_ID=...
+VERCEL_ACCOUNT_LABEL=...
+
+GITHUB_TOKEN=...
+GITHUB_ORG=...
+
+SUPABASE_MANAGEMENT_TOKEN=...
+
+GOOGLE_CLIENT_ID=...        # your own Google Cloud OAuth app
+GOOGLE_CLIENT_SECRET=...
+
+CRON_SECRET=...             # shared secret for /api/cron and scheduled sync
+```
+
+## Architecture
+
+```
+prisma/
+  schema.prisma        Full data model — all 4 modules + auth + external accounts
+  seed.ts               Seeds the same demo company data, with real password hashes
+src/
+  lib/
+    prisma.ts            Prisma client singleton
+    store.ts              Repository layer — every function is a real DB query
+    auth.ts                Auth.js config (Credentials provider, JWT sessions)
+    session.ts             requireCurrentUser() (redirects) / getSessionUserOrNull() (for APIs)
+    rbac.ts                 Access-control logic, incl. LeadFlow isolation (now fixed)
+    analytics.ts             Async rollups for the Branch Dashboard (Module C)
+    cron-auth.ts              Shared authorizer for sync routes (session OR CRON_SECRET)
+    gmail.ts                   OAuth2 client factory for Gmail
+  app/
+    login/                       Real credentials login form
+    actions.ts                    Server actions: loginAction, signOutAction
+    page.tsx                       Continental overview (Module C)
+    branches/[branchId]/            Branch detail
+    projects/, projects/[id]/        Project Registry (Module A)
+    inbox/                             Unified Inbox (Module B) + Gmail connect UI
+    access/                             Access & Ownership Map (Module D) + external accounts
+    leadflow/                            LeadFlow — real isolation + audit-on-view
+    api/auth/[...nextauth]/               Auth.js route handler
+    api/sync/{vercel,github,supabase,gmail}/  Sync jobs (session- or cron-authorized)
+    api/cron/                              Scheduled fan-out (see vercel.json)
+    api/gmail/{connect,callback}/           Real per-inbox Gmail OAuth flow
+vercel.json                                Cron schedule (every 6h)
+```
+
+## Still not fully solved (being upfront about it)
+
+- **Gmail polling needs your own Google Cloud OAuth app.** The code is real and
+  tested for structure, but I obviously can't create Google Cloud credentials on
+  your behalf. Once `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set, the
+  "connect" button on each inbox in `/inbox` starts a real consent flow.
+- **SQLite is fine for one machine, not for a team.** Before more than one person
+  needs write access concurrently, move `DATABASE_URL` to a real Postgres instance
+  (swap the `provider` in `schema.prisma` and re-run `prisma migrate deploy`) —
+  the repository layer in `store.ts` doesn't change.
+- **Credential vault linkage is still references-only**, per the PRD's own
+  instruction not to rebuild a password manager. `vaultReference` fields point at
+  Bitwarden item IDs/URLs; nothing here stores or displays actual secrets.
+- **The demo password is shared and known.** Fine for evaluating this build,
+  not fine once it's holding real KDH/Remake Labs data — rotate immediately.

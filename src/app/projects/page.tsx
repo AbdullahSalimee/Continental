@@ -1,8 +1,12 @@
-import { projects, branches, clients } from "@/lib/store";
+import { requireCurrentUser } from "@/lib/session";
+import { getProjects, getBranches, getClients } from "@/lib/store";
 import ProjectRegistryClient from "@/components/ProjectRegistryClient";
 import SyncTicker from "@/components/SyncTicker";
 
-export default function ProjectsPage() {
+export default async function ProjectsPage() {
+  await requireCurrentUser();
+  const [projects, branches, clients] = await Promise.all([getProjects(), getBranches(), getClients()]);
+
   return (
     <div className="space-y-6">
       <div>

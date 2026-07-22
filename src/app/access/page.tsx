@@ -1,13 +1,16 @@
-"use client";
-
-import { useCurrentUser } from "@/lib/role-context";
-import { people, roles, accessGrants, auditLog, projects, branches, departments } from "@/lib/store";
+import { requireCurrentUser } from "@/lib/session";
+import { getPeople, getRoles, getAccessGrants, getAuditLog, getProjects, getBranches, getDepartments, getExternalAccounts } from "@/lib/store";
 import { isSuperadmin } from "@/lib/rbac";
 import { timeAgo } from "@/lib/format";
 
-export default function AccessPage() {
-  const { role } = useCurrentUser();
+export default async function AccessPage() {
+  const { role } = await requireCurrentUser();
   const superadmin = isSuperadmin(role);
+
+  const [people, roles, accessGrants, projects, branches, departments, externalAccounts] = await Promise.all([
+    getPeople(), getRoles(), getAccessGrants(), getProjects(), getBranches(), getDepartments(), getExternalAccounts(),
+  ]);
+  const auditLog = superadmin ? await getAuditLog() : [];
 
   return (
     <div className="space-y-8">
@@ -15,7 +18,7 @@ export default function AccessPage() {
         <p className="font-mono text-xs uppercase tracking-widest text-text-faint">Module D</p>
         <h1 className="mt-1 font-display text-2xl font-semibold tracking-tight">Access &amp; Ownership Map</h1>
         <p className="mt-2 max-w-2xl text-sm text-text-muted">
-          Who can reach what — across branches, projects, and accounts. Raw credentials live in the shared vault; this only stores references.
+          Who can reach what — across branches, projects, and the actual external logins behind them. Raw credentials live in the shared vault; this only stores references.
         </p>
       </div>
 
@@ -57,7 +60,41 @@ export default function AccessPage() {
       </div>
 
       <div>
-        <h2 className="mb-3 font-display text-sm font-semibold text-text-muted">Access grants</h2>
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="font-display text-sm font-semibold text-text-muted">External account logins</h2>
+          <span className="rounded-full border border-info/25 bg-info/5 px-2 py-0.5 text-[10px] font-mono text-info">who actually holds this login</span>
+        </div>
+        <p className="mb-3 text-xs text-text-faint">
+          This is the piece that used to be missing: not just in-app grants, but which Vercel/GitHub/Supabase/Google
+          logins exist, who owns each one, and who else has been given the credentials.
+        </p>
+        <div className="space-y-1.5">
+          {externalAccounts.map((a) => (
+            <div key={a.id} className="rounded-md border border-border-soft bg-panel/50 px-3.5 py-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-info">{a.platform}</span>
+                <span className="font-mono text-text-faint">{a.vaultReference ?? "no vault reference on file"}</span>
+              </div>
+              <div className="mt-1 text-text">{a.label}</div>
+              <div className="mt-1 text-text-muted">
+                Owner: <span className="text-text">{a.owner?.name ?? "unrecorded"}</span>
+                {a.sharedWith.length > 0 && (
+                  <>
+                    {" "}· Also has this login: {a.sharedWith.map((s) => s.name).join(", ")}
+                  </>
+                )}
+              </div>
+              {a.projectNames.length > 0 && (
+                <div className="mt-1 text-text-faint">Backs: {a.projectNames.join(", ")}</div>
+              )}
+            </div>
+          ))}
+          {externalAccounts.length === 0 && <p className="text-xs text-text-faint">No external accounts recorded yet.</p>}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="mb-3 font-display text-sm font-semibold text-text-muted">In-app access grants</h2>
         <div className="space-y-1.5">
           {accessGrants.map((g) => {
             const person = people.find((p) => p.id === g.personId);
@@ -113,6 +150,7 @@ export default function AccessPage() {
                 <div key={a.id} className="flex items-center justify-between rounded-md border border-border-soft bg-panel/50 px-3.5 py-2.5 text-xs">
                   <span className="text-text-muted">
                     <span className="text-text">{actor?.name}</span> — {a.action.replace(/_/g, " ")}: {a.targetDescription}
+                    {a.sensitive && <span className="ml-2 font-mono text-restricted">sensitive</span>}
                   </span>
                   <span className="font-mono text-text-faint">{timeAgo(a.at)}</span>
                 </div>
@@ -121,7 +159,7 @@ export default function AccessPage() {
           </div>
         ) : (
           <p className="rounded-md border border-border-soft bg-panel/50 px-3.5 py-3 text-xs text-text-faint">
-            The audit log covers access grants and revocations, including LeadFlow exceptions. It's visible to superadmins only.
+            The audit log covers access grants/revocations and every LeadFlow view (granted or denied). It's visible to superadmins only.
           </p>
         )}
       </div>

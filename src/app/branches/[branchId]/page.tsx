@@ -1,21 +1,26 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireCurrentUser } from "@/lib/session";
 import { findBranch, branchProjects, branchActivePeople, branchProfitTotal, branchHealth, branchFocusNote, branchDepartments } from "@/lib/analytics";
 import { money, timeAgo } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
 import HealthDot from "@/components/HealthDot";
 
 export default async function BranchDetailPage({ params }: { params: Promise<{ branchId: string }> }) {
+  await requireCurrentUser();
   const { branchId } = await params;
-  const branch = findBranch(branchId);
+  const branch = await findBranch(branchId);
   if (!branch) notFound();
 
-  const projs = branchProjects(branchId);
-  const activePeople = branchActivePeople(branchId);
-  const profit = branchProfitTotal(branchId);
-  const { health, reason } = branchHealth(branchId);
-  const focus = branchFocusNote(branchId);
-  const depts = branchDepartments(branchId);
+  const [projs, activePeople, profit, healthInfo, focus, depts] = await Promise.all([
+    branchProjects(branchId),
+    branchActivePeople(branchId),
+    branchProfitTotal(branchId),
+    branchHealth(branchId),
+    branchFocusNote(branchId),
+    branchDepartments(branchId),
+  ]);
+  const { health, reason } = healthInfo;
 
   return (
     <div className="space-y-8">
@@ -95,9 +100,7 @@ export default async function BranchDetailPage({ params }: { params: Promise<{ b
               {projs.map((p) => (
                 <tr key={p.id} className="border-b border-border-soft last:border-0 hover:bg-panel-2/60">
                   <td className="px-4 py-3">
-                    <Link href={`/projects/${p.id}`} className="font-medium text-text hover:text-live">
-                      {p.name}
-                    </Link>
+                    <Link href={`/projects/${p.id}`} className="font-medium text-text hover:text-live">{p.name}</Link>
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                   <td className="px-4 py-3 font-mono text-xs text-text-muted">{p.hostingPlatform ?? "—"}</td>

@@ -1,4 +1,4 @@
-import { projects } from "@/lib/store";
+import { getProjects } from "@/lib/store";
 import { timeAgo, sourceLabel } from "@/lib/format";
 
 interface TickerItem {
@@ -10,27 +10,17 @@ interface TickerItem {
   reachable: boolean | null;
 }
 
-function collectTickerItems(): TickerItem[] {
+export default async function SyncTicker() {
+  const projects = await getProjects();
   const items: TickerItem[] = [];
   for (const p of projects) {
     for (const s of p.syncHistory) {
-      items.push({
-        key: `${p.id}-${s.source}`,
-        projectName: p.name,
-        source: s.source,
-        accountLabel: s.accountLabel,
-        lastSeenAt: s.lastSeenAt,
-        reachable: s.reachable,
-      });
+      items.push({ key: `${p.id}-${s.source}`, projectName: p.name, source: s.source, accountLabel: s.accountLabel, lastSeenAt: s.lastSeenAt, reachable: s.reachable });
     }
   }
-  return items.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
-}
-
-export default function SyncTicker() {
-  const items = collectTickerItems();
+  items.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
   if (items.length === 0) return null;
-  const loop = [...items, ...items]; // duplicated for seamless CSS loop
+  const loop = [...items, ...items];
 
   return (
     <div className="relative overflow-hidden rounded-lg border border-border-soft bg-panel/60">

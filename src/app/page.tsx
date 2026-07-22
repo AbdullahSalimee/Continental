@@ -1,12 +1,27 @@
 import Link from "next/link";
+import { requireCurrentUser } from "@/lib/session";
 import { continentalRollup, branchProjects, branchActivePeople, branchProfitTotal, branchHealth, branchFocusNote } from "@/lib/analytics";
 import { money } from "@/lib/format";
 import SyncTicker from "@/components/SyncTicker";
 import RevealGrid from "@/components/RevealGrid";
 import HealthDot from "@/components/HealthDot";
 
-export default function OverviewPage() {
-  const rollup = continentalRollup();
+export default async function OverviewPage() {
+  await requireCurrentUser();
+  const rollup = await continentalRollup();
+
+  const branchCards = await Promise.all(
+    rollup.branches.map(async (b) => {
+      const [projs, activePeople, profit, healthInfo, focus] = await Promise.all([
+        branchProjects(b.id),
+        branchActivePeople(b.id),
+        branchProfitTotal(b.id),
+        branchHealth(b.id),
+        branchFocusNote(b.id),
+      ]);
+      return { branch: b, projs, activePeople, profit, ...healthInfo, focus };
+    })
+  );
 
   return (
     <div className="space-y-8">
@@ -34,14 +49,8 @@ export default function OverviewPage() {
         </div>
 
         <RevealGrid>
-          {rollup.branches.map((b) => {
-            const projs = branchProjects(b.id);
-            const activePeople = branchActivePeople(b.id);
-            const profit = branchProfitTotal(b.id);
-            const { health, reason } = branchHealth(b.id);
-            const focus = branchFocusNote(b.id);
+          {branchCards.map(({ branch: b, projs, activePeople, profit, health, reason, focus }) => {
             const liveCount = projs.filter((p) => p.status === "live").length;
-
             return (
               <Link
                 key={b.id}

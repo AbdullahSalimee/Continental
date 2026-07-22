@@ -35,6 +35,13 @@ export function canSeeDepartment(
   // Restricted (LeadFlow-style) department: closed by default.
   if (isSuperadmin(role)) return true;
 
+  // Actual assigned members of this exact restricted department see their own
+  // department's tools by default — that's the PRD's own rule ("Department
+  // member — visibility limited to their own department's tools"). The
+  // isRestricted flag closes the department to the WIDER company, not to the
+  // people who work in it.
+  if (person.departmentIds.includes(department.id)) return true;
+
   const now = Date.now();
   const explicitGrant = grants.find(
     (g) =>

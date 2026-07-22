@@ -17,10 +17,26 @@ export default function InboxClient({
 }) {
   const [items, setItems] = useState(messages);
   const [showHandled, setShowHandled] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   async function toggle(id: string) {
     setItems((prev) => prev.map((m) => (m.id === id ? { ...m, handled: !m.handled } : m)));
     await fetch(`/api/inbox/${id}/handle`, { method: "POST" }).catch(() => {});
+  }
+
+  async function syncGmail() {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch("/api/sync/gmail", { method: "POST" });
+      const data = await res.json();
+      setSyncMessage(data.message);
+    } catch {
+      setSyncMessage("Could not reach the Gmail sync job.");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   const visible = items.filter((m) => showHandled || !m.handled);
@@ -28,6 +44,42 @@ export default function InboxClient({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-border-soft bg-panel/50 p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">Connected Gmail inboxes</span>
+          <button
+            onClick={syncGmail}
+            disabled={syncing}
+            className="rounded-md border border-border bg-panel-2 px-2.5 py-1 text-xs font-mono text-text-muted transition-colors hover:text-text disabled:opacity-50"
+          >
+            {syncing ? "syncing…" : "sync gmail"}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {accounts.map((a) => (
+            <div key={a.id} className="flex items-center gap-1.5 rounded-full border border-border bg-panel-2 px-2.5 py-1 text-xs">
+              <span className={`h-1.5 w-1.5 rounded-full ${a.connected ? "bg-live" : "bg-text-faint"}`} />
+              <span className="text-text-muted">{a.label}</span>
+              {!a.connected && (
+                <a href={`/api/gmail/connect?inboxAccountId=${a.id}`} className="text-info hover:underline">connect</a>
+              )}
+            </div>
+          ))}
+        </div>
+        <AnimatePresence>
+          {syncMessage && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-2 rounded-md border border-live/25 bg-live/5 px-3 py-2 text-xs text-live"
+            >
+              {syncMessage}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </div>
+
       <div className="flex items-center gap-3">
         <span className="rounded-full border border-signal/30 bg-signal/10 px-3 py-1 text-xs font-mono text-signal">
           {unhandledCount} unhandled
