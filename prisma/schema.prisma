@@ -230,6 +230,32 @@ model AuditLogEntry {
   sensitive         Boolean  @default(false)
 }
 
+model DiscoverRun {
+  id          String   @id @default(cuid())
+  inputHash   String
+  createdAt   DateTime @default(now())
+  triggeredBy String
+  aiUsed      Boolean  @default(false)
+  raw         String
+  decisions   AIDecision[]
+}
+
+model AIDecision {
+  id              String   @id @default(cuid())
+  runId           String
+  run             DiscoverRun @relation(fields: [runId], references: [id])
+  action          String
+  sourceItemIds   String
+  suggestion      String
+  reasoning       String?
+  confidence      Float
+  method          String   @default("ai")
+  status          String   @default("pending")
+  targetProjectId String?
+  createdAt       DateTime @default(now())
+}
+
+
 model LeadFlowLead {
   id            String   @id @default(cuid())
   clientName    String
@@ -239,3 +265,5 @@ model LeadFlowLead {
   owner         Person   @relation("LeadOwner", fields: [ownerPersonId], references: [id])
   createdAt     DateTime @default(now())
 }
+
+
