@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const unassigned = await prisma.branch.findFirst({
+  const unassigned = await prisma.domain.findFirst({
     where: { name: "Unassigned" },
   });
 
@@ -76,7 +76,7 @@ export async function POST(req: Request) {
         const primary = items[0];
         const projectId = await upsertProjectFromSync({
           name: suggestion.suggestedName ?? primary.name,
-          branchId: unassigned?.id ?? "",
+          domainId: unassigned?.id ?? "",
           status: firstDefined(items.map((i) => statusFrom(i.status))),
           liveUrl: firstDefined(
             items.filter((i) => i.source !== "github").map((i) => i.url),
@@ -101,12 +101,12 @@ export async function POST(req: Request) {
       }
 
       if (decision.action === "assign_branch") {
-        const branch = await prisma.branch.findFirst({
+        const domain = await prisma.domain.findFirst({
           where: { name: suggestion.suggestedBranchName },
         });
-        if (!branch) {
+        if (!domain) {
           errors.push(
-            `Decision ${decision.id}: branch "${suggestion.suggestedBranchName}" not found.`,
+            `Decision ${decision.id}: domain "${suggestion.suggestedBranchName}" not found.`,
           );
           continue;
         }
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
         if (existing) {
           await prisma.project.update({
             where: { id: existing.id },
-            data: { branchId: branch.id },
+            data: { domainId: domain.id },
           });
           await prisma.aIDecision.update({
             where: { id: decision.id },

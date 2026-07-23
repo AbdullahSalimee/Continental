@@ -1,33 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Continental OS — Core Domain Types
 //
-// Design note: Branch, Department, Role, ProjectStatus, and HostingPlatform
+// Design note: Domain, Department, Role, ProjectStatus, and HostingPlatform
 // are all modeled as open lists (rows in a table / entries in an array),
 // NEVER as fixed TypeScript union types or enums. This is deliberate:
-// the PRD requires that new branches, departments, and statuses can be
+// the PRD requires that new domains, departments, and statuses can be
 // added at runtime, through the system itself, without a code change.
 // A hardcoded union type would violate that constraint the moment someone
-// tried to add "Fiverr Freelance" as a branch.
+// tried to add "Fiverr Freelance" as a domain.
 // ─────────────────────────────────────────────────────────────────────────
 
 export type ID = string;
 
 // ---- Reference data (open/extensible lists) --------------------------------
 
-export interface Branch {
+export interface Domain {
   id: ID;
   name: string;
   focus: string;
   createdAt: string;
-  branchType: "standard" | "no_clients";
-  // Free-form rules text — KDH's business rules live here as data, not logic,
-  // so they can be represented/displayed without being hard-coded into the app.
+  domainType: "standard" | "no_clients";
   notes?: string;
 }
 
 export interface Department {
   id: ID;
-  branchId: ID;
+  domainId: ID;
   name: string;
   // Marks departments that need the strict isolation behavior (LeadFlow).
   // This is a DATA flag, not a name check — nothing in the access-control
@@ -54,8 +52,8 @@ export interface Person {
   name: string;
   email: string;
   roleId: ID;
-  // Which branches this person is generally attached to (drives Module C headcount)
-  branchIds: ID[];
+  // Which domains this person is generally attached to (drives Module C headcount)
+  domainIds: ID[];
   departmentIds: ID[];
   active: boolean;
   createdAt: string;
@@ -92,7 +90,7 @@ export type DeliveryModel = "solo" | "multi_tenant" | "hybrid" | string;
 export interface Client {
   id: ID;
   name: string;
-  branchId: ID;
+  domainId: ID;
   isOutOfDomain?: boolean; // KDH: leads/clients from outside Kasur
   notes?: string;
 }
@@ -100,7 +98,7 @@ export interface Client {
 export interface Project {
   id: ID;
   name: string;
-  branchId: ID;
+  domainId: ID;
   departmentId?: ID;
   liveUrl?: string;
   previewUrls?: string[];
@@ -142,11 +140,11 @@ export interface InboxMessage {
   inferredProjectId?: ID;
 }
 
-// ---- Module C: Branch Intelligence -----------------------------------------
+// ---- Module C: Domain Intelligence -----------------------------------------
 
 export interface ProfitEntry {
   id: ID;
-  branchId: ID;
+  domainId: ID;
   amount: number;
   currency: string;
   note: string;
@@ -157,8 +155,8 @@ export interface ProfitEntry {
   verified: "self_reported"; // only value today — automation isn't realistic for money
 }
 
-export interface BranchFocusNote {
-  branchId: ID;
+export interface DomainFocusNote {
+  domainId: ID;
   note: string;
   updatedAt: string;
   updatedByPersonId: ID;
@@ -169,8 +167,8 @@ export interface BranchFocusNote {
 export interface AccessGrant {
   id: ID;
   personId: ID;
-  // A grant targets EITHER a project, a branch, or (rare, audited) LeadFlow-department data.
-  targetType: "project" | "branch" | "department";
+  // A grant targets EITHER a project, a domain, or (rare, audited) LeadFlow-department data.
+  targetType: "project" | "domain" | "department";
   targetId: ID;
   level: "owner" | "editor" | "viewer";
   vaultReference?: string; // link/reference into Bitwarden (or chosen vault), never a raw secret

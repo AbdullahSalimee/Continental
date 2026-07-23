@@ -124,13 +124,13 @@ export async function POST(req: Request) {
     });
   }
 
-  for (const b of result.branchSuggestions) {
+  for (const b of result.domainSuggestions) {
     decisionRows.push({
       runId: run.id,
       action: "assign_branch",
       sourceItemIds: JSON.stringify([b.itemId]),
       suggestion: JSON.stringify({
-        suggestedBranchName: b.suggestedBranchName,
+        suggestedBranchName: b.suggestedDomainName,
       }),
       reasoning: b.reasoning,
       confidence: b.confidence,
@@ -166,7 +166,7 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: true,
-    message: `Found ${allItems.length} item(s) across sources. ${result.matches.length} match group(s), ${result.branchSuggestions.length} branch suggestion(s), ${result.fieldSuggestions.length} field suggestion(s).${result.aiUsed ? "" : ` (AI not used${result.aiError ? ": " + result.aiError : ""} — deterministic matching only.)`}`,
+    message: `Found ${allItems.length} item(s) across sources. ${result.matches.length} match group(s), ${result.domainSuggestions.length} domain suggestion(s), ${result.fieldSuggestions.length} field suggestion(s).${result.aiUsed ? "" : ` (AI not used${result.aiError ? ": " + result.aiError : ""} — deterministic matching only.)`}`,
     sourcesChecked: {
       vercel: vercelItems.length,
       github: githubItems.length,

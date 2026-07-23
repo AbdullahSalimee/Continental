@@ -122,33 +122,33 @@ function shortestName(names: string[]): string {
   return names.reduce((a, b) => (b.length < a.length ? b : a));
 }
 
-// Keyword-based branch guess — cheap, deterministic, handles the obvious
+// Keyword-based domain guess — cheap, deterministic, handles the obvious
 // cases so AI only has to reason about the ambiguous ones.
 //
-// Branches are an open/extensible list in this system (see types.ts) — new
+// Domains are an open/extensible list in this system (see types.ts) — new
 // ones can be added at runtime through the app itself. So this can't be a
-// hardcoded switch on branch name: it takes the ACTUAL branches that exist
+// hardcoded switch on domain name: it takes the ACTUAL domains that exist
 // right now (fetched from the DB by the caller) and only offers a guess for
-// ones it recognizes a content pattern for. A brand-new branch with no
+// ones it recognizes a content pattern for. A brand-new domain with no
 // pattern here simply gets no keyword guess — it still goes to the AI step,
-// which sees the real branch list and can reason about it directly.
-const BRANCH_KEYWORD_PATTERNS: Record<string, RegExp> = {
+// which sees the real domain list and can reason about it directly.
+const DOMAIN_KEYWORD_PATTERNS: Record<string, RegExp> = {
   KDH: /clinic|academy|school|restaurant|bakery|kasur|kdh/,
   "Remakes Labs": /remake|alternative|clone|version-of|remakes?[-\s]?labs?/,
   Fiverr: /fiverr|freelance|gig/,
 };
 
-export function guessBranchByKeywords(
+export function guessDomainByKeywords(
   name: string,
   description: string | undefined,
-  existingBranchNames: string[],
-): { branchName: string; confidence: number } | null {
+  existingDomainNames: string[],
+): { domainName: string; confidence: number } | null {
   const text = `${name} ${description ?? ""}`.toLowerCase();
 
-  for (const branchName of existingBranchNames) {
-    const pattern = BRANCH_KEYWORD_PATTERNS[branchName];
+  for (const domainName of existingDomainNames) {
+    const pattern = DOMAIN_KEYWORD_PATTERNS[domainName];
     if (pattern && pattern.test(text)) {
-      return { branchName, confidence: 0.7 };
+      return { domainName, confidence: 0.7 };
     }
   }
   return null;

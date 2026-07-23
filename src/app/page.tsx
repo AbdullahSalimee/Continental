@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireCurrentUser } from "@/lib/session";
-import { continentalRollup, branchProjects, branchActivePeople, branchProfitTotal, branchHealth, branchFocusNote } from "@/lib/analytics";
+import { continentalRollup, domainProjects, domainActivePeople, domainProfitTotal, domainHealth, domainFocusNote } from "@/lib/analytics";
 import { money } from "@/lib/format";
 import SyncTicker from "@/components/SyncTicker";
 import RevealGrid from "@/components/RevealGrid";
@@ -10,16 +10,16 @@ export default async function OverviewPage() {
   await requireCurrentUser();
   const rollup = await continentalRollup();
 
-  const branchCards = await Promise.all(
-    rollup.branches.map(async (b) => {
+  const domainCards = await Promise.all(
+    rollup.domains.map(async (b) => {
       const [projs, activePeople, profit, healthInfo, focus] = await Promise.all([
-        branchProjects(b.id),
-        branchActivePeople(b.id),
-        branchProfitTotal(b.id),
-        branchHealth(b.id),
-        branchFocusNote(b.id),
+        domainProjects(b.id),
+        domainActivePeople(b.id),
+        domainProfitTotal(b.id),
+        domainHealth(b.id),
+        domainFocusNote(b.id),
       ]);
-      return { branch: b, projs, activePeople, profit, ...healthInfo, focus };
+      return { domain: b, projs, activePeople, profit, ...healthInfo, focus };
     })
   );
 
@@ -38,23 +38,23 @@ export default async function OverviewPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Total projects" value={rollup.totalProjects.toString()} />
         <StatTile label="Active people" value={rollup.totalActivePeople.toString()} />
-        <StatTile label="Branch profit (PKR)" value={money(rollup.totalProfitPKR, "PKR")} muted="self-reported" />
-        <StatTile label="Branch profit (USD)" value={money(rollup.totalProfitUSD, "USD")} muted="self-reported" />
+        <StatTile label="Domain profit (PKR)" value={money(rollup.totalProfitPKR, "PKR")} muted="self-reported" />
+        <StatTile label="Domain profit (USD)" value={money(rollup.totalProfitUSD, "USD")} muted="self-reported" />
       </div>
 
       <div>
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="font-display text-lg font-semibold">Branches</h2>
-          <span className="text-xs text-text-faint">{rollup.branches.length} branches · list is open, not fixed</span>
+          <h2 className="font-display text-lg font-semibold">Domains</h2>
+          <span className="text-xs text-text-faint">{rollup.domains.length} domains · list is open, not fixed</span>
         </div>
 
         <RevealGrid>
-          {branchCards.map(({ branch: b, projs, activePeople, profit, health, reason, focus }) => {
+          {domainCards.map(({ domain: b, projs, activePeople, profit, health, reason, focus }) => {
             const liveCount = projs.filter((p) => p.status === "live").length;
             return (
               <Link
                 key={b.id}
-                href={`/branches/${b.id}`}
+                href={`/domains/${b.id}`}
                 className="group block rounded-xl border border-border bg-panel p-5 transition-colors hover:border-live/30 hover:bg-panel-2"
               >
                 <div className="flex items-start justify-between gap-3">

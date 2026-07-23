@@ -14,7 +14,7 @@
 5. [Coding Conventions & Patterns](#5-coding-conventions--patterns)
 6. [Module A: Project Registry](#6-module-a-project-registry)
 7. [Module B: Unified Inbox](#7-module-b-unified-inbox)
-8. [Module C: Branch Intelligence](#8-module-c-branch-intelligence)
+8. [Module C: Domain Intelligence](#8-module-c-domain-intelligence)
 9. [Module D: Access & Ownership](#9-module-d-access--ownership)
 10. [Discover / AI Reconciliation](#10-discover--ai-reconciliation)
 11. [LeadFlow Integration](#11-leadflow-integration)
@@ -27,15 +27,15 @@
 
 ## 1. Project Overview
 
-Continental OS is an **internal operations command center** for Continental — a small software agency with three branches:
+Continental OS is an **internal operations command center** for Continental — a small software agency with three domains:
 
-| Branch | Focus | Notes |
+| Domain | Focus | Notes |
 |---|---|---|
 | **KDH (Kasur Digital Hub)** | Digitizing local businesses in Kasur, Pakistan | Has departments: Project, LeadFlow (restricted) |
-| **Remakes Labs** | Alternative versions of popular websites | `branchType: no_clients` — no client field |
+| **Remakes Labs** | Alternative versions of popular websites | `domainType: no_clients` — no client field |
 | **Fiverr** | Freelance/service work | Not yet launched |
 
-The app auto-syncs projects from Vercel, GitHub, and Supabase, uses AI (Groq) to cross-match duplicates, and provides a unified dashboard for branch health, inbox triage, access control, and audit logging.
+The app auto-syncs projects from Vercel, GitHub, and Supabase, uses AI (Groq) to cross-match duplicates, and provides a unified dashboard for domain health, inbox triage, access control, and audit logging.
 
 ### Quick Start for AI
 
@@ -44,7 +44,7 @@ The app auto-syncs projects from Vercel, GitHub, and Supabase, uses AI (Groq) to
 npm install
 npx prisma generate
 npx prisma migrate deploy   # only if dev.db doesn't exist
-npx prisma db seed          # demo data: 5 users, 4 branches
+npx prisma db seed          # demo data: 5 users, 4 domains
 npm run dev                 # http://localhost:3000
 ```
 
@@ -126,18 +126,18 @@ When creating new components, pages, or API routes, copy from:
 |---|---|---|
 | `src/app/layout.tsx` | Root layout: fonts, TopNav, max-width container | Rarely touched |
 | `src/app/globals.css` | Dark theme CSS, Tailwind theme variables, animations | Add new theme tokens or animations here |
-| `src/app/actions.ts` | Server actions: login, signOut, updateProjectBranch, addExternalAccount | Add new server actions here |
-| `src/app/page.tsx` | Overview dashboard / Module C | Branch cards, stats grid |
+| `src/app/actions.ts` | Server actions: login, signOut, updateProjectDomain, addExternalAccount | Add new server actions here |
+| `src/app/page.tsx` | Overview dashboard / Module C | Domain cards, stats grid |
 | `src/app/login/page.tsx` | Login form | Styling changes only |
 | `src/app/projects/page.tsx` | Project Registry page (Module A) | Server component wrapper |
 | `src/app/projects/[id]/page.tsx` | Project detail page | All project fields, owners, grants, sync history |
-| `src/app/branches/[branchId]/page.tsx` | Branch detail page | Stats, team, clients, departments, LeadFlow, projects |
+| `src/app/domains/[domainId]/page.tsx` | Domain detail page | Stats, team, clients, departments, LeadFlow, projects |
 | `src/app/inbox/page.tsx` | Unified Inbox page (Module B) | Server component wrapper |
 | `src/app/access/page.tsx` | Access & Ownership page (Module D) | People, external accounts, grants, audit log |
 | `src/app/api/auth/[...nextauth]/route.ts` | Auth.js handler | Never touch |
 | `src/app/api/cron/route.ts` | Cron dispatcher | Add new sync targets here |
 | `src/app/api/discover/route.ts` | Discover endpoint | Fetch logic, enrichment, decision storage |
-| `src/app/api/discover/apply/route.ts` | Apply/reject decisions | Project creation, branch assignment, status updates |
+| `src/app/api/discover/apply/route.ts` | Apply/reject decisions | Project creation, domain assignment, status updates |
 | `src/app/api/sync/vercel/route.ts` | Vercel sync | Add multi-account support |
 | `src/app/api/sync/github/route.ts` | GitHub sync | Add multi-org support |
 | `src/app/api/sync/supabase/route.ts` | Supabase sync | Rarely changed |
@@ -155,8 +155,8 @@ When creating new components, pages, or API routes, copy from:
 | `src/components/InboxClient.tsx` | Client | Inbox message list, Gmail sync, connect buttons |
 | `src/components/SyncTicker.tsx` | Server | Horizontal scrolling sync telemetry |
 | `src/components/StatusBadge.tsx` | Server | Color-coded status badges |
-| `src/components/HealthDot.tsx` | Server | Branch health indicator |
-| `src/components/BranchAssignSelect.tsx` | Client | Inline branch dropdown |
+| `src/components/HealthDot.tsx` | Server | Domain health indicator |
+| `src/components/DomainAssignSelect.tsx` | Client | Inline domain dropdown |
 | `src/components/RevealGrid.tsx` | Client | Animated grid with staggered children |
 
 ### 3.3 Library Files
@@ -168,11 +168,11 @@ When creating new components, pages, or API routes, copy from:
 | `src/lib/auth.ts` | Auth.js config | `handlers`, `auth`, `signIn`, `signOut` |
 | `src/lib/session.ts` | Session helpers | `requireCurrentUser()`, `getSessionUserOrNull()` |
 | `src/lib/rbac.ts` | Role-based access control | `isSuperadmin()`, `canSeeDepartment()`, `canSeeProject()` |
-| `src/lib/analytics.ts` | Business logic | `continentalRollup()`, `branchHealth()`, `projectDrift()` |
-| `src/lib/types.ts` | Domain types (207 lines) | `Project`, `Branch`, `Person`, `Role`, etc. |
+| `src/lib/analytics.ts` | Business logic | `continentalRollup()`, `domainHealth()`, `projectDrift()` |
+| `src/lib/types.ts` | Domain types (207 lines) | `Project`, `Domain`, `Person`, `Role`, etc. |
 | `src/lib/format.ts` | Utilities | `timeAgo()`, `money()`, `sourceLabel()` |
 | `src/lib/ai.ts` | Groq API client | `callGroqJSON()`, `isAIConfigured()`, `extractJSON()` |
-| `src/lib/fuzzy-match.ts` | Deterministic name matching | `nameSimilarity()`, `fuzzyGroup()`, `guessBranchByKeywords()` |
+| `src/lib/fuzzy-match.ts` | Deterministic name matching | `nameSimilarity()`, `fuzzyGroup()`, `guessDomainByKeywords()` |
 | `src/lib/reconcile.ts` | Discover orchestrator | `reconcile()` — exact → fuzzy → AI pipeline |
 | `src/lib/discover-types.ts` | Discover types | `DiscoveredItem`, `MatchSuggestion`, `hashItems()` |
 | `src/lib/cron-auth.ts` | Sync authorization | `authorizeSyncRequest()` |
@@ -182,8 +182,8 @@ When creating new components, pages, or API routes, copy from:
 
 | File | Purpose |
 |---|---|
-| `prisma/schema.prisma` | 13 models: Role, Person, Branch, Department, Client, ExternalAccount, ExternalAccountAccess, Project, SyncStamp, InboxAccount, InboxMessage, ProfitEntry, BranchFocusNote, AccessGrant, AuditLogEntry, DiscoverRun, AIDecision, LeadFlowLead |
-| `prisma/seed.ts` | Seeds 3 roles, 4 branches, 2 departments, 5 people, 2 clients, 2 focus notes |
+| `prisma/schema.prisma` | 13 models: Role, Person, Domain, Department, Client, ExternalAccount, ExternalAccountAccess, Project, SyncStamp, InboxAccount, InboxMessage, ProfitEntry, DomainFocusNote, AccessGrant, AuditLogEntry, DiscoverRun, AIDecision, LeadFlowLead |
+| `prisma/seed.ts` | Seeds 3 roles, 4 domains, 2 departments, 5 people, 2 clients, 2 focus notes |
 | `prisma/dev.db` | Pre-seeded SQLite database (works out of the box) |
 | `.env.example` | Template showing all env vars |
 | `vercel.json` | Cron schedule: every 6h |
@@ -200,16 +200,16 @@ When creating new components, pages, or API routes, copy from:
 // Auth
 model Role              { id, name (unique), description, people[] }
 model Person            { id, name, email (unique), passwordHash, roleId, role, active, createdAt,
-                         branches[], departments[], ownedProjects[], grantsReceived[], grantsIssued[],
+                         domains[], departments[], ownedProjects[], grantsReceived[], grantsIssued[],
                          auditActions[], profitEntries[], focusNotes[], leadFlowLeads[],
                          ownedExternalAccts[], externalAccountAccess[] }
 
 // Reference
-model Branch            { id, name, focus, notes?, branchType (standard|no_clients), createdAt,
+model Domain            { id, name, focus, notes?, domainType (standard|no_clients), createdAt,
                          departments[], projects[], clients[], profitEntries[], focusNote?, people[] }
-model Department        { id, branchId, branch, name, isRestricted, restrictedReason?,
+model Department        { id, domainId, domain, name, isRestricted, restrictedReason?,
                          successMetric?, people[], projects[] }
-model Client            { id, name, branchId, branch, isOutOfDomain, notes?, projects[] }
+model Client            { id, name, domainId, domain, isOutOfDomain, notes?, projects[] }
 
 // Module A: Project Registry
 model ExternalAccount   { id, platform (vercel|github|supabase|google|other), label,
@@ -217,14 +217,14 @@ model ExternalAccount   { id, platform (vercel|github|supabase|google|other), la
                          projects[], accessList[], inboxAccounts[] }
 model ExternalAccountAccess { id, externalAccountId, externalAccount, personId, person,
                               grantedAt, @@unique([externalAccountId, personId]) }
-model Project           { id, name, branchId, branch, departmentId?, department?,
+model Project           { id, name, domainId, domain, departmentId?, department?,
                          liveUrl?, previewUrls? (JSON string[]), hostingPlatform?,
                          externalAccountId?, externalAccount?, repoUrl?, databaseRef?,
                          status, clientId?, client?, deliveryModel?, createdAt, lastKnownUpdateAt,
                          notes?, source (auto|manual|auto+manual),
                          owners[], syncStamps[], inboxAccounts[], inboxMessages[] }
 model SyncStamp         { id, projectId, project, source (vercel_api|github_api|supabase_api|manual),
-                         accountLabel, lastSeenAt, reachable?, assignedBranchId? }
+                         accountLabel, lastSeenAt, reachable?, assignedDomainId? }
 
 // Module B: Unified Inbox
 model InboxAccount      { id, label, strategy (polling|forwarding), linkedProjectId?, linkedProject?,
@@ -234,13 +234,13 @@ model InboxMessage      { id, accountId, account, from, subject, snippet, receiv
                          handled (default false), inferredProjectId?, inferredProject?,
                          gmailMessageId? (unique) }
 
-// Module C: Branch Intelligence
-model ProfitEntry       { id, branchId, branch, amount, currency, note, recordedAt,
+// Module C: Domain Intelligence
+model ProfitEntry       { id, domainId, domain, amount, currency, note, recordedAt,
                          recordedByPersonId, recordedBy, verified (default "self_reported") }
-model BranchFocusNote   { id, branchId (unique), branch, note, updatedAt, updatedByPersonId, updatedBy }
+model DomainFocusNote   { id, domainId (unique), domain, note, updatedAt, updatedByPersonId, updatedBy }
 
 // Module D: Access & Ownership
-model AccessGrant       { id, personId, person, targetType (project|branch|department),
+model AccessGrant       { id, personId, person, targetType (project|domain|department),
                          targetId, level (owner|editor|viewer), vaultReference?,
                          grantedAt, grantedByPersonId, grantedBy, expiresAt? }
 model AuditLogEntry     { id, at, actorPersonId, actor, action, targetDescription, sensitive }
@@ -360,7 +360,7 @@ npx prisma generate
 
 1. **ALWAYS authorize** — Every API route checks `getSessionUserOrNull()` or `authorizeSyncRequest()`
 2. **ALWAYS revalidate** — After mutations, call `revalidatePath()` so server components refresh
-3. **NEVER hardcode branch names** — Branches are data-driven (stored in DB), use `findBranch()` or `getBranches()`
+3. **NEVER hardcode domain names** — Domains are data-driven (stored in DB), use `findDomain()` or `getDomains()`
 4. **NEVER use `any`** — Add proper types. Especially in `mapProject()` in `store.ts`
 5. **NEVER store raw secrets** — Use `vaultReference` fields pointing to Bitwarden
 6. **AI is never trusted** — AI write to AIDecision table, NOT Project table. Human must approve.
@@ -382,18 +382,18 @@ npx prisma generate
 ### Key Component
 - `src/components/ProjectRegistryClient.tsx` — "use client" component with:
   - Search input
-  - Branch/status/drift filters
+  - Domain/status/drift filters
   - Discover button → `POST /api/discover`
   - Pending decisions review table (approve/reject per-item or bulk)
-  - Project registry table with inline branch assignment
+  - Project registry table with inline domain assignment
 
 ### Sync Logic (store.ts:363)
 ```
 upsertProjectFromSync(input):
-  1. Check branch name convention matching (KDH, Remake, Fiverr in name)
-  2. Find existing project by exact name
-  3. If exists → update fields, NEVER override human branch assignment
-  4. If new → create Project + SyncStamp
+1. Check domain name convention matching (KDH, Remake, Fiverr in name)
+2. Find existing project by exact name
+3. If exists → update fields, NEVER override human domain assignment
+4. If new → create Project + SyncStamp
 ```
 
 ### Drift Detection (analytics.ts:70)
@@ -448,35 +448,35 @@ User clicks "connect" → /api/gmail/connect → Google consent screen
 
 ---
 
-## 8. Module C: Branch Intelligence
+## 8. Module C: Domain Intelligence
 
 ### Pages
-- `src/app/page.tsx` — Overview dashboard with branch cards
-- `src/app/branches/[branchId]/page.tsx` — Branch detail page
+- `src/app/page.tsx` — Overview dashboard with domain cards
+- `src/app/domains/[domainId]/page.tsx` — Domain detail page
 
 ### Key Library
 - `src/lib/analytics.ts` — All rollup functions
 
 ### Overview Dashboard (page.tsx)
 ```
-continentalRollup() → { totalProjects, totalActivePeople, totalProfitPKR, totalProfitUSD, branches }
+continentalRollup() → { totalProjects, totalActivePeople, totalProfitPKR, totalProfitUSD, domains }
 
-For each branch:
-  branchProjects(id) → Project[]
-  branchActivePeople(id) → Person[]
-  branchProfitTotal(id) → { total, currency, entries[] }
-  branchHealth(id) → { health: "on_track"|"needs_attention"|"stale", reason }
-  branchFocusNote(id) → string | null
+For each domain:
+  domainProjects(id) → Project[]
+  domainActivePeople(id) → Person[]
+  domainProfitTotal(id) → { total, currency, entries[] }
+  domainHealth(id) → { health: "on_track"|"needs_attention"|"stale", reason }
+  domainFocusNote(id) → string | null
 ```
 
-### Branch Detail (branches/[branchId]/page.tsx)
+### Domain Detail (domains/[domainId]/page.tsx)
 Three views:
-1. **Unassigned** — Assignment-focused: table of unassigned projects with branch dropdown
+1. **Unassigned** — Assignment-focused: table of unassigned projects with domain dropdown
 2. **Fiverr (no data)** — Placeholder: "Coming soon" message
 3. **Normal** — Stats grid + team + clients + departments + LeadFlow + projects
 
 ### To-Do for AI
-- [ ] Add branch management UI (create/edit/delete)
+- [ ] Add domain management UI (create/edit/delete)
 - [ ] Add department management UI
 - [ ] Add profit entry management UI
 - [ ] Add focus note editing UI
@@ -495,7 +495,7 @@ Three views:
 - `src/lib/rbac.ts` — Access control rules
 
 ### Sections
-1. **People & roles** — Table with name, role, branches, grant count
+1. **People & roles** — Table with name, role, domains, grant count
 2. **External account logins** — Which Vercel/GitHub/Supabase/Google accounts exist
 3. **In-app access grants** — Explicit grants with expiration
 4. **Audit log** — Superadmin-only, chronological event log
@@ -506,9 +506,9 @@ isSuperadmin(role)       → role.name === "superadmin"
 canSeeDepartment(person, role, department, grants):
   - If NOT restricted → anyone can see
   - If restricted → superadmin OR department member OR explicit grant
-canSeeProject(person, role, projectBranchId, grants):
+canSeeProject(person, role, projectDomainId, grants):
   - If superadmin → yes
-  - If developer on same branch → yes
+  - If developer on same domain → yes
   - If explicit project grant → yes
 ```
 
@@ -534,8 +534,8 @@ reconcile(items: DiscoveredItem[]):
   Step 1:   Exact name match (Map<string, DiscoveredItem[]>)
   Step 1.5: Absorb near-matches into exact groups
   Step 2:   Fuzzy Levenshtein clustering (threshold 0.82)
-  Step 3:   Batched Groq call (if configured) for match + branch + field
-  Returns:  { matches[], standalone[], branchSuggestions[], fieldSuggestions[], aiUsed }
+  Step 3:   Batched Groq call (if configured) for match + domain + field
+  Returns:  { matches[], standalone[], domainSuggestions[], fieldSuggestions[], aiUsed }
 ```
 
 ### AI Client (ai.ts)
@@ -552,10 +552,10 @@ callGroqJSON(systemPrompt, userPrompt):
 ### AI Prompt (reconcile.ts:192-207)
 ```
 System prompt tells Groq:
-  - Available branches (from DB)
-  - Which items are already matched by deterministic methods
-  - Response must be JSON: { matches[], branchSuggestions[], fieldSuggestions[] }
-  - Confidence should reflect actual certainty (0.2 = weak guess, 0.8+ = strong)
+- Available domains (from DB)
+- Which items are already matched by deterministic methods
+- Response must be JSON: { matches[], domainSuggestions[], fieldSuggestions[] }
+- Confidence should reflect actual certainty (0.2 = weak guess, 0.8+ = strong)
 
 User prompt: serialized items with { id, source, name, description, language, databaseRef, status, alreadyMatched }
 ```
@@ -563,7 +563,7 @@ User prompt: serialized items with { id, source, name, description, language, da
 ### Key Design Decisions
 1. AI output is NEVER trusted — stored as pending AIDecision rows
 2. Standalone items get a "match" decision so they become projects
-3. Branch/field suggestions require the project to already exist
+3. Domain/field suggestions require the project to already exist
 4. Input hash (SHA-256) caches runs — identical data doesn't re-call AI
 5. Already-matched items are NEVER re-litigated by AI
 
@@ -590,7 +590,7 @@ LeadFlow is a restricted CRM department within KDH. Data comes from either:
 
 ### Code Location
 - `src/lib/store.ts:277-319` — `getLeadFlowLeads()` function
-- `src/app/branches/[branchId]/page.tsx:167-187` — LeadFlow embed in KDH branch page
+- `src/app/domains/[domainId]/page.tsx:167-187` — LeadFlow embed in KDH domain page
 - `src/lib/rbac.ts:23-55` — `canSeeDepartment()` check
 
 ---
@@ -601,19 +601,19 @@ Each feature below includes the exact files to create/modify.
 
 ### P0 — Core CRUD Operations
 
-#### Branch CRUD
+#### Domain CRUD
 ```
 Files to create:
-  - src/app/api/branches/route.ts          (POST: create branch)
-  - src/app/api/branches/[id]/route.ts      (PUT/DELETE: update/delete)
-  - src/components/BranchForm.tsx           (create/edit form, "use client")
-  - src/app/branches/page.tsx               (branch management page)
+  - src/app/api/domains/route.ts          (POST: create domain)
+  - src/app/api/domains/[id]/route.ts      (PUT/DELETE: update/delete)
+  - src/components/DomainForm.tsx           (create/edit form, "use client")
+  - src/app/domains/page.tsx               (domain management page)
 
 Files to modify:
   - src/app/actions.ts                      (add server actions if needed)
-  - src/lib/store.ts                        (add createBranch, updateBranch, deleteBranch)
+  - src/lib/store.ts                        (add createDomain, updateDomain, deleteDomain)
 
-Prisma: Already has Branch model — no schema change needed
+Prisma: Already has Domain model — no schema change needed
 ```
 
 #### Department CRUD
@@ -691,12 +691,12 @@ Prisma: Already has Client model
 #### Focus Note Editing
 ```
 File to create:
-  - src/app/api/focus-notes/[branchId]/route.ts (PUT: update focus note)
+  - src/app/api/focus-notes/[domainId]/route.ts (PUT: update focus note)
 
 File to modify:
-  - src/app/branches/[branchId]/page.tsx   (add edit button on focus note)
+  - src/app/domains/[domainId]/page.tsx   (add edit button on focus note)
 
-Prisma: Already has BranchFocusNote model
+Prisma: Already has DomainFocusNote model
 ```
 
 #### Profit Entry Management
@@ -757,8 +757,8 @@ Files to create:
   - src/app/inbox/error.tsx
   - src/app/access/loading.tsx
   - src/app/access/error.tsx
-  - src/app/branches/loading.tsx
-  - src/app/branches/error.tsx
+  - src/app/domains/loading.tsx
+  - src/app/domains/error.tsx
 
 Next.js convention: files named exactly loading.tsx, error.tsx, not-found.tsx
 ```
@@ -867,7 +867,7 @@ Shortcuts:
 ```
 Files to modify:
   - src/components/ProjectRegistryClient.tsx (add checkbox column, bulk action bar)
-  - src/app/actions.ts                      (add bulkUpdateProjectStatus, bulkAssignBranch)
+  - src/app/actions.ts                      (add bulkUpdateProjectStatus, bulkAssignDomain)
 ```
 
 #### Tags/Labels on Projects
@@ -899,7 +899,7 @@ Files to create:
   - src/components/LeadFlowKanban.tsx       (drag-and-drop lead board)
 
 Files to modify:
-  - src/app/branches/[branchId]/page.tsx    (replace table with Kanban option)
+  - src/app/domains/[domainId]/page.tsx    (replace table with Kanban option)
 
 Depends on: framer-motion already included for drag-and-drop
 ```
@@ -975,7 +975,7 @@ if (cronSecret && authHeader) {
 interface ProjectPrismaRow {
   id: string;
   name: string;
-  branchId: string;
+  domainId: string;
   // ... all fields from Prisma Project model
   owners: { id: string }[];
   syncStamps: { source: string; accountLabel: string; lastSeenAt: Date; reachable: boolean | null }[];
@@ -989,16 +989,16 @@ function mapProject(p: ProjectPrismaRow): Project { ... }
 - **File:** `tsconfig.json`
 - **Fix:** Add `"strict": true` to compilerOptions and fix all resulting errors
 
-#### Issue 14: Hardcoded branch name matching
+#### Issue 14: Hardcoded domain name matching
 - **File:** `src/lib/store.ts:348-352`
-- **Fix:** Move branch-matching rules to a database table:
+- **Fix:** Move domain-matching rules to a database table:
 ```prisma
-model BranchNameRule {
-  id          String @id @default(cuid())
-  pattern     String // regex pattern
-  branchId    String
-  branch      Branch @relation(fields: [branchId], references: [id])
-  priority    Int    @default(0) // higher = checked first
+model DomainNameRule {
+  id        String @id @default(cuid())
+  pattern   String // regex pattern
+  domainId  String
+  domain    Domain @relation(fields: [domainId], references: [id])
+  priority  Int    @default(0) // higher = checked first
 }
 ```
 
@@ -1078,7 +1078,7 @@ npm install -D jest @types/jest ts-jest @testing-library/react @testing-library/
 
 | Priority | Task | Key Files |
 |---|---|---|
-| P0 | Branch CRUD | New: `src/app/api/branches/route.ts`, `src/components/BranchForm.tsx` |
+| P0 | Domain CRUD | New: `src/app/api/domains/route.ts`, `src/components/DomainForm.tsx` |
 | P0 | Department CRUD | New: `src/app/api/departments/route.ts`, `src/components/DepartmentForm.tsx` |
 | P0 | User management | New: `src/app/users/`, `src/app/api/users/` |
 | P0 | Project CRUD (manual) | New: `src/app/api/projects/route.ts`, `src/components/ProjectForm.tsx` |
@@ -1105,8 +1105,8 @@ npm install -D jest @types/jest ts-jest @testing-library/react @testing-library/
 
 | Tier | Price | Features |
 |---|---|---|
-| Starter | Free | 1 branch, 3 users, 10 projects, basic sync |
-| Growth | $29/mo/seat | Unlimited branches, 20 users, all integrations, AI Discover |
+| Starter | Free | 1 domain, 3 users, 10 projects, basic sync |
+| Growth | $29/mo/seat | Unlimited domains, 20 users, all integrations, AI Discover |
 | Pro | $99/mo/seat | Unlimited everything, white-label, API access, priority support |
 | Enterprise | Custom | On-premise, SAML/SSO, dedicated support, custom integrations |
 

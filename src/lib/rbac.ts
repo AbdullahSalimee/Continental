@@ -27,7 +27,7 @@ export function canSeeDepartment(
   grants: AccessGrant[]
 ): boolean {
   if (!department.isRestricted) {
-    // Normal branch-visibility rule: anyone attached to the branch/department,
+    // Normal domain-visibility rule: anyone attached to the domain/department,
     // or any developer, can see non-restricted department data.
     return true;
   }
@@ -57,12 +57,12 @@ export function canSeeDepartment(
 export function canSeeProject(
   person: Person,
   role: Role,
-  projectBranchId: string,
+  projectDomainId: string,
   grants: AccessGrant[],
   projectId: string
 ): boolean {
   if (isSuperadmin(role)) return true;
-  if (role.name === "developer" && person.branchIds.includes(projectBranchId)) return true;
+  if (role.name === "developer" && person.domainIds.includes(projectDomainId)) return true;
 
   return grants.some(
     (g) => g.personId === person.id && g.targetType === "project" && g.targetId === projectId

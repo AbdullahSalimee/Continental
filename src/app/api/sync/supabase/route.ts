@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     if (!res.ok) throw new Error(`Supabase API responded ${res.status}`);
     const supaProjects = await res.json();
 
-    const unassigned = await prisma.branch.findFirst({
+    const unassigned = await prisma.domain.findFirst({
       where: { name: "Unassigned" },
     });
     let matched = 0;
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 
       await upsertProjectFromSync({
         name: sp.name,
-        branchId: unassigned?.id ?? "",
+        domainId: unassigned?.id ?? "",
         syncSource: "supabase_api",
         accountLabel,
         databaseRef: `supabase:${sp.id}`,
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       configured: true,
-      message: `Found ${supaProjects.length} Supabase project(s) (triggered by ${auth.actor}): ${matched} matched existing registry entries, ${created} newly created into Unassigned.`,
+      message: `Found ${supaProjects.length} Supabase project(s) (triggered by ${auth.actor}): ${matched} matched existing registry entries, ${created} newly created into Unassigned domain.`,
       discovered,
     });
   } catch (err) {

@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 
     const repos = await res.json();
 
-    const unassigned = await prisma.branch.findFirst({
+    const unassigned = await prisma.domain.findFirst({
       where: { name: "Unassigned" },
     });
     let matched = 0;
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
 
       await upsertProjectFromSync({
         name: repo.name,
-        branchId: unassigned?.id ?? "",
+        domainId: unassigned?.id ?? "",
         syncSource: "github_api",
         accountLabel: org ?? "github-org",
         repoUrl: repo.html_url,
@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       configured: true,
-      message: `Found ${repos.length} repo(s) on GitHub (triggered by ${auth.actor}): ${matched} matched existing projects, ${created} newly created into Unassigned.`,
+      message: `Found ${repos.length} repo(s) on GitHub (triggered by ${auth.actor}): ${matched} matched existing projects, ${created} newly created into Unassigned domain.`,
       discovered,
     });
   } catch (err) {

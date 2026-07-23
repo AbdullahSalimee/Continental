@@ -2,53 +2,53 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCurrentUser } from "@/lib/session";
 import {
-  findBranch,
-  branchProjects,
-  branchActivePeople,
-  branchProfitTotal,
-  branchHealth,
-  branchFocusNote,
-  branchDepartments,
+  findDomain,
+  domainProjects,
+  domainActivePeople,
+  domainProfitTotal,
+  domainHealth,
+  domainFocusNote,
+  domainDepartments,
 } from "@/lib/analytics";
 import {
   getLeadFlowLeads,
   getAccessGrants,
   addAuditLogEntry,
   getClients,
-  getBranches,
+  getDomains,
 } from "@/lib/store";
 import { canSeeDepartment } from "@/lib/rbac";
 import { money, timeAgo } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
 import HealthDot from "@/components/HealthDot";
-import BranchAssignSelect from "@/components/BranchAssignSelect";
+import DomainAssignSelect from "@/components/DomainAssignSelect";
 
-export default async function BranchDetailPage({
+export default async function DomainDetailPage({
   params,
 }: {
-  params: Promise<{ branchId: string }>;
+  params: Promise<{ domainId: string }>;
 }) {
   const { person, role } = await requireCurrentUser();
-  const { branchId } = await params;
-  const branch = await findBranch(branchId);
-  if (!branch) notFound();
+  const { domainId } = await params;
+  const domain = await findDomain(domainId);
+  if (!domain) notFound();
 
   const [projs, activePeople, profit, healthInfo, focus, depts] =
     await Promise.all([
-      branchProjects(branchId),
-      branchActivePeople(branchId),
-      branchProfitTotal(branchId),
-      branchHealth(branchId),
-      branchFocusNote(branchId),
-      branchDepartments(branchId),
+      domainProjects(domainId),
+      domainActivePeople(domainId),
+      domainProfitTotal(domainId),
+      domainHealth(domainId),
+      domainFocusNote(domainId),
+      domainDepartments(domainId),
     ]);
   const { health, reason } = healthInfo;
 
-  // Unassigned isn't a working branch — it's a holding pen for synced projects
+  // Unassigned isn't a working domain — it's a holding pen for synced projects
   // that haven't been placed yet, so it gets its own assign-focused view
   // instead of the normal stats/team/clients layout.
-  if (branch.name === "Unassigned") {
-    const allBranches = (await getBranches()).filter(
+  if (domain.name === "Unassigned") {
+    const allDomains = (await getDomains()).filter(
       (b) => b.name !== "Unassigned",
     );
     return (
@@ -58,14 +58,14 @@ export default async function BranchDetailPage({
             href="/"
             className="text-xs text-text-faint hover:text-text-muted"
           >
-            ← All branches
+            ← All domains
           </Link>
           <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            {branch.name}
+            {domain.name}
           </h1>
           <p className="mt-1 max-w-xl text-sm text-text-muted">
             Projects discovered by sync that haven't been placed on a real
-            branch yet. Assigning one is the only manual step in the flow.
+            domain yet. Assigning one is the only manual step in the flow.
           </p>
         </div>
         <div className="overflow-hidden rounded-lg border border-border">
@@ -99,10 +99,10 @@ export default async function BranchDetailPage({
                     {timeAgo(p.lastKnownUpdateAt)}
                   </td>
                   <td className="px-4 py-3">
-                    <BranchAssignSelect
+                    <DomainAssignSelect
                       projectId={p.id}
-                      currentBranchId={p.branchId}
-                      branches={allBranches}
+                      currentDomainId={p.domainId}
+                      domains={allDomains}
                     />
                   </td>
                 </tr>
@@ -127,7 +127,7 @@ export default async function BranchDetailPage({
   // Fiverr hasn't launched yet — show a placeholder instead of an empty-looking
   // stats grid until there's actually something to report on.
   if (
-    branch.name === "Fiverr" &&
+    domain.name === "Fiverr" &&
     projs.length === 0 &&
     activePeople.length === 0
   ) {
@@ -138,18 +138,18 @@ export default async function BranchDetailPage({
             href="/"
             className="text-xs text-text-faint hover:text-text-muted"
           >
-            ← All branches
+            ← All domains
           </Link>
           <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
-            {branch.name}
+            {domain.name}
           </h1>
         </div>
         <div className="rounded-lg border border-border-soft bg-panel/50 p-6 text-center">
           <p className="text-sm text-text-muted">
-            {branch.focus || "Coming soon."}
+            {domain.focus || "Coming soon."}
           </p>
           <p className="mt-1 text-xs text-text-faint">
-            This branch hasn't launched yet — nothing to report until it has
+            This domain hasn't launched yet — nothing to report until it has
             projects or people.
           </p>
         </div>
@@ -157,10 +157,10 @@ export default async function BranchDetailPage({
     );
   }
 
-  const branchClients =
-    branch.branchType === "no_clients"
+  const domainClients =
+    domain.domainType === "no_clients"
       ? []
-      : (await getClients()).filter((c) => c.branchId === branchId);
+      : (await getClients()).filter((c) => c.domainId === domainId);
 
   // LeadFlow is a department of KDH, not a top-level page — embed it here,
   // gated by the same access-grant check the old standalone page used.
@@ -193,15 +193,15 @@ export default async function BranchDetailPage({
           href="/"
           className="text-xs text-text-faint hover:text-text-muted"
         >
-          ← All branches
+          ← All domains
         </Link>
         <div className="mt-2 flex items-start justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight">
-              {branch.name}
+              {domain.name}
             </h1>
             <p className="mt-1 max-w-xl text-sm text-text-muted">
-              {branch.focus}
+              {domain.focus}
             </p>
           </div>
           <HealthDot health={health} />
@@ -209,12 +209,12 @@ export default async function BranchDetailPage({
         <p className="mt-2 text-xs text-text-faint">Health: {reason}</p>
       </div>
 
-      {branch.notes && (
+      {domain.notes && (
         <div className="rounded-lg border border-border-soft bg-panel/60 p-4 text-sm text-text-muted">
           <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
             Business rules on record
           </span>
-          <p className="mt-1.5 leading-relaxed">{branch.notes}</p>
+          <p className="mt-1.5 leading-relaxed">{domain.notes}</p>
         </div>
       )}
 
@@ -270,13 +270,13 @@ export default async function BranchDetailPage({
           </div>
         </div>
 
-        {branch.branchType !== "no_clients" && (
+        {domain.domainType !== "no_clients" && (
           <div>
             <h2 className="mb-2 font-display text-sm font-semibold text-text-muted">
               Clients
             </h2>
             <div className="flex flex-wrap gap-2">
-              {branchClients.map((c) => (
+              {domainClients.map((c) => (
                 <span
                   key={c.id}
                   className="rounded-full border border-border bg-panel-2 px-3 py-1 text-xs text-text-muted"
@@ -285,7 +285,7 @@ export default async function BranchDetailPage({
                   {c.isOutOfDomain && " · out-of-domain"}
                 </span>
               ))}
-              {branchClients.length === 0 && (
+              {domainClients.length === 0 && (
                 <p className="text-xs text-text-faint">
                   No clients recorded yet.
                 </p>
@@ -422,7 +422,7 @@ export default async function BranchDetailPage({
                     colSpan={4}
                     className="px-4 py-6 text-center text-xs text-text-faint"
                   >
-                    No projects recorded for this branch yet.
+                    No projects recorded for this domain yet.
                   </td>
                 </tr>
               )}

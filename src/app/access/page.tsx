@@ -5,7 +5,7 @@ import {
   getAccessGrants,
   getAuditLog,
   getProjects,
-  getBranches,
+  getDomains,
   getDepartments,
   getExternalAccounts,
 } from "@/lib/store";
@@ -22,7 +22,7 @@ export default async function AccessPage() {
     roles,
     accessGrants,
     projects,
-    branches,
+    domains,
     departments,
     externalAccounts,
   ] = await Promise.all([
@@ -30,7 +30,7 @@ export default async function AccessPage() {
     getRoles(),
     getAccessGrants(),
     getProjects(),
-    getBranches(),
+    getDomains(),
     getDepartments(),
     getExternalAccounts(),
   ]);
@@ -46,7 +46,7 @@ export default async function AccessPage() {
           Access &amp; Ownership Map
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-text-muted">
-          Who can reach what — across branches, projects, and the actual
+          Who can reach what — across domains, projects, and the actual
           external logins behind them. Raw credentials live in the shared vault;
           this only stores references.
         </p>
@@ -62,7 +62,7 @@ export default async function AccessPage() {
               <tr className="border-b border-border bg-panel-2 text-left text-xs text-text-faint">
                 <th className="px-4 py-2.5 font-medium">Person</th>
                 <th className="px-4 py-2.5 font-medium">Role</th>
-                <th className="px-4 py-2.5 font-medium">Branches</th>
+                <th className="px-4 py-2.5 font-medium">Domains</th>
                 <th className="px-4 py-2.5 font-medium">Direct grants</th>
               </tr>
             </thead>
@@ -87,8 +87,8 @@ export default async function AccessPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-text-muted">
-                      {p.branchIds
-                        .map((bid) => branches.find((b) => b.id === bid)?.name)
+                      {p.domainIds
+                        .map((bid) => domains.find((b) => b.id === bid)?.name)
                         .join(", ") || "—"}
                     </td>
                     <td className="px-4 py-3 text-xs text-text-muted">
@@ -235,8 +235,8 @@ export default async function AccessPage() {
             const targetLabel =
               g.targetType === "project"
                 ? projects.find((p) => p.id === g.targetId)?.name
-                : g.targetType === "branch"
-                  ? branches.find((b) => b.id === g.targetId)?.name
+                : g.targetType === "domain"
+                  ? domains.find((b) => b.id === g.targetId)?.name
                   : departments.find((d) => d.id === g.targetId)?.name;
             const restricted =
               g.targetType === "department" &&

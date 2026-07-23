@@ -4,11 +4,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Branch, Client, Project } from "@/lib/types";
+import type { Domain, Client, Project } from "@/lib/types";
 import { projectDrift } from "@/lib/analytics";
 import { timeAgo, sourceLabel } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
-import { updateProjectBranchAction } from "@/app/actions";
+import { updateProjectDomainAction } from "@/app/actions";
 
 type DiscoveredItem = {
   id: string;
@@ -58,16 +58,16 @@ function decisionLabel(d: DecisionRow): string {
 
 export default function ProjectRegistryClient({
   projects,
-  branches,
+  domains,
   clients,
 }: {
   projects: Project[];
-  branches: Branch[];
+  domains: Domain[];
   clients: Client[];
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [domainFilter, setDomainFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [driftOnly, setDriftOnly] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -76,10 +76,10 @@ export default function ProjectRegistryClient({
   const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
-  async function moveProject(projectId: string, branchId: string) {
+  async function moveProject(projectId: string, domainId: string) {
     setMovingId(projectId);
     try {
-      await updateProjectBranchAction(projectId, branchId);
+      await updateProjectDomainAction(projectId, domainId);
     } finally {
       setMovingId(null);
     }
@@ -91,7 +91,7 @@ export default function ProjectRegistryClient({
   );
 
   const filtered = projects.filter((p) => {
-    if (branchFilter !== "all" && p.branchId !== branchFilter) return false;
+    if (domainFilter !== "all" && p.domainId !== domainFilter) return false;
     if (statusFilter !== "all" && p.status !== statusFilter) return false;
     if (driftOnly && !projectDrift(p).drifted) return false;
     if (query && !p.name.toLowerCase().includes(query.toLowerCase()))
@@ -177,12 +177,12 @@ export default function ProjectRegistryClient({
           className="w-48 rounded-md border border-border bg-panel px-3 py-1.5 text-sm outline-none focus:border-live/50"
         />
         <select
-          value={branchFilter}
-          onChange={(e) => setBranchFilter(e.target.value)}
+          value={domainFilter}
+          onChange={(e) => setDomainFilter(e.target.value)}
           className="rounded-md border border-border bg-panel px-2.5 py-1.5 text-sm text-text-muted"
         >
-          <option value="all">All branches</option>
-          {branches.map((b) => (
+          <option value="all">All domains</option>
+          {domains.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
             </option>
@@ -334,7 +334,7 @@ export default function ProjectRegistryClient({
           <thead>
             <tr className="border-b border-border bg-panel-2 text-left text-xs text-text-faint">
               <th className="px-4 py-2.5 font-medium">Project</th>
-              <th className="px-4 py-2.5 font-medium">Branch</th>
+              <th className="px-4 py-2.5 font-medium">Domain</th>
               <th className="px-4 py-2.5 font-medium">Status</th>
               <th className="px-4 py-2.5 font-medium">Client</th>
               <th className="px-4 py-2.5 font-medium">Source</th>
@@ -362,12 +362,12 @@ export default function ProjectRegistryClient({
                   </td>
                   <td className="px-4 py-3">
                     <select
-                      value={p.branchId ?? ""}
+                      value={p.domainId ?? ""}
                       disabled={movingId === p.id}
                       onChange={(e) => moveProject(p.id, e.target.value)}
                       className="rounded-md border border-border bg-panel-2 px-2 py-1 text-xs text-text-muted outline-none focus:border-live/50 disabled:opacity-50"
                     >
-                      {branches.map((b) => (
+                      {domains.map((b) => (
                         <option key={b.id} value={b.id}>
                           {b.name}
                         </option>
@@ -378,7 +378,7 @@ export default function ProjectRegistryClient({
                     <StatusBadge status={p.status} />
                   </td>
                   <td className="px-4 py-3 text-xs text-text-muted">
-                    {branches.find((b) => b.id === p.branchId)?.branchType ===
+                    {domains.find((b) => b.id === p.domainId)?.domainType ===
                     "no_clients"
                       ? "—"
                       : (client?.name ?? "—")}

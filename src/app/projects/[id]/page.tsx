@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCurrentUser } from "@/lib/session";
-import { getProjectById, getBranches, getClients, getAccessGrants, getPeople } from "@/lib/store";
+import { getProjectById, getDomains, getClients, getAccessGrants, getPeople } from "@/lib/store";
 import { projectDrift } from "@/lib/analytics";
 import { timeAgo, sourceLabel } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
@@ -12,8 +12,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const project = await getProjectById(id);
   if (!project) notFound();
 
-  const [branches, clients, accessGrants, people] = await Promise.all([getBranches(), getClients(), getAccessGrants(), getPeople()]);
-  const branch = branches.find((b) => b.id === project.branchId);
+  const [domains, clients, accessGrants, people] = await Promise.all([getDomains(), getClients(), getAccessGrants(), getPeople()]);
+  const domain = domains.find((b) => b.id === project.domainId);
   const client = clients.find((c) => c.id === project.clientId);
   const owners = people.filter((p) => project.ownerPersonIds.includes(p.id));
   const grants = accessGrants.filter((g) => g.targetType === "project" && g.targetId === project.id);
@@ -27,7 +27,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">{project.name}</h1>
           <p className="mt-1 text-sm text-text-muted">
-            {branch?.name}{project.departmentId ? " · dept" : ""}
+            {domain?.name}{project.departmentId ? " · dept" : ""}
           </p>
         </div>
         <StatusBadge status={project.status} />

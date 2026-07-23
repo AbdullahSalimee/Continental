@@ -28,8 +28,8 @@ async function main() {
     },
   });
 
-  // ---- Branches ---------------------------------------------------------------
-  const kdh = await prisma.branch.create({
+  // ---- Domains ---------------------------------------------------------------
+  const kdh = await prisma.domain.create({
     data: {
       name: "KDH (Kasur Digital Hub)",
       focus:
@@ -41,25 +41,25 @@ async function main() {
         "Out-of-domain leads still serviced but flagged. No outside-area hires. Domain never sold. KDH staff work exclusively for KDH.",
     },
   });
-  const remakeLabs = await prisma.branch.create({
+  const remakeLabs = await prisma.domain.create({
     data: {
       name: "Remakes Labs",
-      branchType: "no_clients",
+      domainType: "no_clients",
       focus:
-        "Builds alternative versions of popular websites, then markets them. Creative/experimental branch — no clients.",
+        "Builds alternative versions of popular websites, then markets them. Creative/experimental domain — no clients.",
       createdAt: daysAgo(400),
       notes:
-        "Remakes Labs has no client relationships — projects are self-directed products, not client work. The client field does not apply to this branch.",
+        "Remakes Labs has no client relationships — projects are self-directed products, not client work. The client field does not apply to this domain.",
     },
   });
-  const fiverr = await prisma.branch.create({
+  const fiverr = await prisma.domain.create({
     data: { name: "Fiverr", focus: "Coming soon.", createdAt: new Date() },
   });
-  const unassigned = await prisma.branch.create({
+  const unassigned = await prisma.domain.create({
     data: {
       name: "Unassigned",
       focus:
-        "Holding area for anything auto-detected before a human files it under a real branch.",
+        "Holding area for anything auto-detected before a human files it under a real domain.",
       createdAt: new Date(),
     },
   });
@@ -67,7 +67,7 @@ async function main() {
   // ---- Departments --------------------------------------------------------------
   const deptProject = await prisma.department.create({
     data: {
-      branchId: kdh.id,
+      domainId: kdh.id,
       name: "Project",
       isRestricted: false,
       successMetric: "on-time delivery",
@@ -75,7 +75,7 @@ async function main() {
   });
   const deptLeadFlow = await prisma.department.create({
     data: {
-      branchId: kdh.id,
+      domainId: kdh.id,
       name: "LeadFlow",
       isRestricted: true,
       restrictedReason:
@@ -92,7 +92,7 @@ async function main() {
       passwordHash: hash,
       roleId: roleSuper.id,
       createdAt: daysAgo(400),
-      branches: {
+      domains: {
         connect: [{ id: kdh.id }, { id: remakeLabs.id }, { id: fiverr.id }],
       },
       departments: {
@@ -107,7 +107,7 @@ async function main() {
       passwordHash: hash,
       roleId: roleSuper.id,
       createdAt: daysAgo(400),
-      branches: {
+      domains: {
         connect: [{ id: kdh.id }, { id: remakeLabs.id }, { id: fiverr.id }],
       },
       departments: {
@@ -122,7 +122,7 @@ async function main() {
       passwordHash: hash,
       roleId: roleDev.id,
       createdAt: daysAgo(200),
-      branches: { connect: [{ id: kdh.id }, { id: remakeLabs.id }] },
+      domains: { connect: [{ id: kdh.id }, { id: remakeLabs.id }] },
       departments: { connect: [{ id: deptLeadFlow.id }] },
     },
   });
@@ -133,7 +133,7 @@ async function main() {
       passwordHash: hash,
       roleId: roleDept.id,
       createdAt: daysAgo(150),
-      branches: { connect: [{ id: kdh.id }] },
+      domains: { connect: [{ id: kdh.id }] },
       departments: { connect: [{ id: deptLeadFlow.id }] },
     },
   });
@@ -144,29 +144,29 @@ async function main() {
       passwordHash: hash,
       roleId: roleDept.id,
       createdAt: daysAgo(150),
-      branches: { connect: [{ id: kdh.id }] },
+      domains: { connect: [{ id: kdh.id }] },
       departments: { connect: [{ id: deptLeadFlow.id }] },
     },
   });
 
   // ---- Clients (KDH only — Remakes Labs has no clients) --------------------------
   const clientAlShifa = await prisma.client.create({
-    data: { name: "Al-Shifa Clinic", branchId: kdh.id },
+    data: { name: "Al-Shifa Clinic", domainId: kdh.id },
   });
   const clientAcademy = await prisma.client.create({
-    data: { name: "Local Academy (AMS client)", branchId: kdh.id },
+    data: { name: "Local Academy (AMS client)", domainId: kdh.id },
   });
 
   // ---- Focus notes ----------------------------------------------------------------
-  await prisma.branchFocusNote.createMany({
+await prisma.domainFocusNote.createMany({
     data: [
       {
-        branchId: kdh.id,
+        domainId: kdh.id,
         note: "Close Al-Shifa scope conversation (hybrid terms) before adding more dev time.",
         updatedByPersonId: abdullah.id,
       },
       {
-        branchId: remakeLabs.id,
+        domainId: remakeLabs.id,
         note: "Pick the next popular site to remake and start scoping the build.",
         updatedByPersonId: furqan.id,
       },

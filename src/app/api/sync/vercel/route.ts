@@ -69,7 +69,7 @@ export async function POST(req: Request) {
     if (!res.ok) throw new Error(`Vercel API responded ${res.status}`);
     const data = await res.json();
 
-    const unassigned = await prisma.branch.findFirst({
+    const unassigned = await prisma.domain.findFirst({
       where: { name: "Unassigned" },
     });
     const discovered: { name: string; status: string; accountLabel: string }[] =
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
 
       await upsertProjectFromSync({
         name: vp.name,
-        branchId: unassigned?.id ?? "",
+        domainId: unassigned?.id ?? "",
         hostingPlatform: "vercel",
         status,
         liveUrl: vp.targets?.production?.alias?.[0]

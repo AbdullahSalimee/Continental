@@ -18,33 +18,34 @@ CREATE TABLE "Person" (
 );
 
 -- CreateTable
-CREATE TABLE "Branch" (
+CREATE TABLE "Domain" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
     "focus" TEXT NOT NULL,
     "notes" TEXT,
+    "domainType" TEXT NOT NULL DEFAULT 'standard',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CreateTable
 CREATE TABLE "Department" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "branchId" TEXT NOT NULL,
+    "domainId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "isRestricted" BOOLEAN NOT NULL DEFAULT false,
     "restrictedReason" TEXT,
     "successMetric" TEXT,
-    CONSTRAINT "Department_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "Department_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "Client" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
-    "branchId" TEXT NOT NULL,
+    "domainId" TEXT NOT NULL,
     "isOutOfDomain" BOOLEAN NOT NULL DEFAULT false,
     "notes" TEXT,
-    CONSTRAINT "Client_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "Client_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -72,7 +73,7 @@ CREATE TABLE "ExternalAccountAccess" (
 CREATE TABLE "Project" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
-    "branchId" TEXT NOT NULL,
+    "domainId" TEXT NOT NULL,
     "departmentId" TEXT,
     "liveUrl" TEXT,
     "previewUrls" TEXT,
@@ -87,7 +88,7 @@ CREATE TABLE "Project" (
     "lastKnownUpdateAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "notes" TEXT,
     "source" TEXT NOT NULL,
-    CONSTRAINT "Project_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Project_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "Project_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "Department" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Project_externalAccountId_fkey" FOREIGN KEY ("externalAccountId") REFERENCES "ExternalAccount" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Project_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client" ("id") ON DELETE SET NULL ON UPDATE CASCADE
@@ -101,6 +102,7 @@ CREATE TABLE "SyncStamp" (
     "accountLabel" TEXT NOT NULL,
     "lastSeenAt" DATETIME NOT NULL,
     "reachable" BOOLEAN,
+    "assignedDomainId" TEXT,
     CONSTRAINT "SyncStamp_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
@@ -135,26 +137,26 @@ CREATE TABLE "InboxMessage" (
 -- CreateTable
 CREATE TABLE "ProfitEntry" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "branchId" TEXT NOT NULL,
+    "domainId" TEXT NOT NULL,
     "amount" REAL NOT NULL,
     "currency" TEXT NOT NULL,
     "note" TEXT NOT NULL,
     "recordedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "recordedByPersonId" TEXT NOT NULL,
     "verified" TEXT NOT NULL DEFAULT 'self_reported',
-    CONSTRAINT "ProfitEntry_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "ProfitEntry_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "ProfitEntry_recordedByPersonId_fkey" FOREIGN KEY ("recordedByPersonId") REFERENCES "Person" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
-CREATE TABLE "BranchFocusNote" (
+CREATE TABLE "DomainFocusNote" (
     "id" TEXT NOT NULL PRIMARY KEY,
-    "branchId" TEXT NOT NULL,
+    "domainId" TEXT NOT NULL,
     "note" TEXT NOT NULL,
     "updatedAt" DATETIME NOT NULL,
     "updatedByPersonId" TEXT NOT NULL,
-    CONSTRAINT "BranchFocusNote_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "BranchFocusNote_updatedByPersonId_fkey" FOREIGN KEY ("updatedByPersonId") REFERENCES "Person" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "DomainFocusNote_domainId_fkey" FOREIGN KEY ("domainId") REFERENCES "Domain" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "DomainFocusNote_updatedByPersonId_fkey" FOREIGN KEY ("updatedByPersonId") REFERENCES "Person" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -184,6 +186,32 @@ CREATE TABLE "AuditLogEntry" (
 );
 
 -- CreateTable
+CREATE TABLE "DiscoverRun" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "inputHash" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "triggeredBy" TEXT NOT NULL,
+    "aiUsed" BOOLEAN NOT NULL DEFAULT false,
+    "raw" TEXT NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "AIDecision" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "runId" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "sourceItemIds" TEXT NOT NULL,
+    "suggestion" TEXT NOT NULL,
+    "reasoning" TEXT,
+    "confidence" REAL NOT NULL,
+    "method" TEXT NOT NULL DEFAULT 'ai',
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "targetProjectId" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "AIDecision_runId_fkey" FOREIGN KEY ("runId") REFERENCES "DiscoverRun" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "LeadFlowLead" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "clientName" TEXT NOT NULL,
@@ -203,11 +231,11 @@ CREATE TABLE "_ProjectOwners" (
 );
 
 -- CreateTable
-CREATE TABLE "_PersonBranches" (
+CREATE TABLE "_PersonDomains" (
     "A" TEXT NOT NULL,
     "B" TEXT NOT NULL,
-    CONSTRAINT "_PersonBranches_A_fkey" FOREIGN KEY ("A") REFERENCES "Branch" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "_PersonBranches_B_fkey" FOREIGN KEY ("B") REFERENCES "Person" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "_PersonDomains_A_fkey" FOREIGN KEY ("A") REFERENCES "Domain" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "_PersonDomains_B_fkey" FOREIGN KEY ("B") REFERENCES "Person" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -231,7 +259,7 @@ CREATE UNIQUE INDEX "ExternalAccountAccess_externalAccountId_personId_key" ON "E
 CREATE UNIQUE INDEX "InboxMessage_gmailMessageId_key" ON "InboxMessage"("gmailMessageId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "BranchFocusNote_branchId_key" ON "BranchFocusNote"("branchId");
+CREATE UNIQUE INDEX "DomainFocusNote_domainId_key" ON "DomainFocusNote"("domainId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_ProjectOwners_AB_unique" ON "_ProjectOwners"("A", "B");
@@ -240,10 +268,10 @@ CREATE UNIQUE INDEX "_ProjectOwners_AB_unique" ON "_ProjectOwners"("A", "B");
 CREATE INDEX "_ProjectOwners_B_index" ON "_ProjectOwners"("B");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "_PersonBranches_AB_unique" ON "_PersonBranches"("A", "B");
+CREATE UNIQUE INDEX "_PersonDomains_AB_unique" ON "_PersonDomains"("A", "B");
 
 -- CreateIndex
-CREATE INDEX "_PersonBranches_B_index" ON "_PersonBranches"("B");
+CREATE INDEX "_PersonDomains_B_index" ON "_PersonDomains"("B");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_PersonDepartments_AB_unique" ON "_PersonDepartments"("A", "B");

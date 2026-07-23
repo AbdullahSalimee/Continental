@@ -20,9 +20,9 @@ export interface MatchSuggestion {
   reasoning?: string;
 }
 
-export interface BranchSuggestion {
+export interface DomainSuggestion {
   itemId: string; // or a synthetic group id for matched clusters
-  suggestedBranchName: string;
+  suggestedDomainName: string;
   confidence: number;
   method: "keyword" | "ai";
   reasoning?: string;
@@ -40,7 +40,7 @@ export interface FieldSuggestion {
 export interface ReconciliationResult {
   matches: MatchSuggestion[];
   standalone: DiscoveredItem[];
-  branchSuggestions: BranchSuggestion[];
+  domainSuggestions: DomainSuggestion[];
   fieldSuggestions: FieldSuggestion[];
   aiUsed: boolean;
   aiError?: string;

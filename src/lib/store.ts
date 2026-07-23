@@ -2,8 +2,8 @@ import { prisma } from "./prisma";
 import type {
   AccessGrant,
   AuditLogEntry,
-  Branch,
-  BranchFocusNote,
+  Domain,
+  DomainFocusNote,
   Client,
   Department,
   InboxAccount,
@@ -34,7 +34,7 @@ export async function getPersonRoleById(roleId: string): Promise<Role> {
 
 export async function getPeople(): Promise<Person[]> {
   const rows = await prisma.person.findMany({
-    include: { branches: true, departments: true },
+    include: { domains: true, departments: true },
     orderBy: { createdAt: "asc" },
   });
   return rows.map((p) => ({
@@ -42,7 +42,7 @@ export async function getPeople(): Promise<Person[]> {
     name: p.name,
     email: p.email,
     roleId: p.roleId,
-    branchIds: p.branches.map((b) => b.id),
+    domainIds: p.domains.map((b) => b.id),
     departmentIds: p.departments.map((d) => d.id),
     active: p.active,
     createdAt: p.createdAt.toISOString(),
@@ -52,7 +52,7 @@ export async function getPeople(): Promise<Person[]> {
 export async function getPersonById(id: string): Promise<Person | null> {
   const p = await prisma.person.findUnique({
     where: { id },
-    include: { branches: true, departments: true },
+    include: { domains: true, departments: true },
   });
   if (!p) return null;
   return {
@@ -60,7 +60,7 @@ export async function getPersonById(id: string): Promise<Person | null> {
     name: p.name,
     email: p.email,
     roleId: p.roleId,
-    branchIds: p.branches.map((b) => b.id),
+    domainIds: p.domains.map((b) => b.id),
     departmentIds: p.departments.map((d) => d.id),
     active: p.active,
     createdAt: p.createdAt.toISOString(),
@@ -74,26 +74,26 @@ export async function getPersonByEmail(email: string) {
   });
 }
 
-export async function getBranches(): Promise<Branch[]> {
-  const rows = await prisma.branch.findMany({ orderBy: { createdAt: "asc" } });
+export async function getDomains(): Promise<Domain[]> {
+  const rows = await prisma.domain.findMany({ orderBy: { createdAt: "asc" } });
   return rows.map((b) => ({
     id: b.id,
     name: b.name,
     focus: b.focus,
-    branchType: b.branchType as "standard" | "no_clients",
+    domainType: b.domainType as "standard" | "no_clients",
     notes: b.notes ?? undefined,
     createdAt: b.createdAt.toISOString(),
   }));
 }
 
-export async function getBranchById(id: string): Promise<Branch | null> {
-  const b = await prisma.branch.findUnique({ where: { id } });
+export async function getDomainById(id: string): Promise<Domain | null> {
+  const b = await prisma.domain.findUnique({ where: { id } });
   if (!b) return null;
   return {
     id: b.id,
     name: b.name,
     focus: b.focus,
-    branchType: b.branchType as "standard" | "no_clients",
+    domainType: b.domainType as "standard" | "no_clients",
     notes: b.notes ?? undefined,
     createdAt: b.createdAt.toISOString(),
   };
@@ -103,7 +103,7 @@ export async function getDepartments(): Promise<Department[]> {
   const rows = await prisma.department.findMany();
   return rows.map((d) => ({
     id: d.id,
-    branchId: d.branchId,
+    domainId: d.domainId,
     name: d.name,
     isRestricted: d.isRestricted,
     restrictedReason: d.restrictedReason ?? undefined,
@@ -116,7 +116,7 @@ export async function getClients(): Promise<Client[]> {
   return rows.map((c) => ({
     id: c.id,
     name: c.name,
-    branchId: c.branchId,
+    domainId: c.domainId,
     isOutOfDomain: c.isOutOfDomain,
     notes: c.notes ?? undefined,
   }));
@@ -126,7 +126,7 @@ function mapProject(p: any): Project {
   return {
     id: p.id,
     name: p.name,
-    branchId: p.branchId,
+    domainId: p.domainId,
     departmentId: p.departmentId ?? undefined,
     liveUrl: p.liveUrl ?? undefined,
     previewUrls: p.previewUrls ? JSON.parse(p.previewUrls) : undefined,
@@ -213,7 +213,7 @@ export async function getProfitEntries(): Promise<ProfitEntry[]> {
   const rows = await prisma.profitEntry.findMany();
   return rows.map((e) => ({
     id: e.id,
-    branchId: e.branchId,
+    domainId: e.domainId,
     amount: e.amount,
     currency: e.currency,
     note: e.note,
@@ -223,10 +223,10 @@ export async function getProfitEntries(): Promise<ProfitEntry[]> {
   }));
 }
 
-export async function getBranchFocusNotes(): Promise<BranchFocusNote[]> {
-  const rows = await prisma.branchFocusNote.findMany();
+export async function getDomainFocusNotes(): Promise<DomainFocusNote[]> {
+  const rows = await prisma.domainFocusNote.findMany();
   return rows.map((n) => ({
-    branchId: n.branchId,
+    domainId: n.domainId,
     note: n.note,
     updatedAt: n.updatedAt.toISOString(),
     updatedByPersonId: n.updatedByPersonId,
@@ -238,7 +238,7 @@ export async function getAccessGrants(): Promise<AccessGrant[]> {
   return rows.map((g) => ({
     id: g.id,
     personId: g.personId,
-    targetType: g.targetType as "project" | "branch" | "department",
+    targetType: g.targetType as "project" | "domain" | "department",
     targetId: g.targetId,
     level: g.level as "owner" | "editor" | "viewer",
     vaultReference: g.vaultReference ?? undefined,
@@ -344,25 +344,25 @@ export async function getExternalAccounts() {
 }
 
 // Naming-convention rules: matched against the incoming project name (case-insensitive).
-// Add more { pattern, branchName } pairs as conventions emerge — first match wins.
-const BRANCH_NAME_RULES: { pattern: RegExp; branchName: string }[] = [
-  { pattern: /\bkdh\b/i, branchName: "KDH (Kasur Digital Hub)" },
-  { pattern: /\bremake/i, branchName: "Remakes Labs" },
-  { pattern: /\bfiverr\b/i, branchName: "Fiverr" },
+// Add more { pattern, domainName } pairs as conventions emerge — first match wins.
+const DOMAIN_NAME_RULES: { pattern: RegExp; domainName: string }[] = [
+  { pattern: /\bkdh\b/i, domainName: "KDH (Kasur Digital Hub)" },
+  { pattern: /\bremake/i, domainName: "Remakes Labs" },
+  { pattern: /\bfiverr\b/i, domainName: "Fiverr" },
 ];
 
-async function matchBranchByName(projectName: string): Promise<string | null> {
-  const rule = BRANCH_NAME_RULES.find((r) => r.pattern.test(projectName));
+async function matchDomainByName(projectName: string): Promise<string | null> {
+  const rule = DOMAIN_NAME_RULES.find((r) => r.pattern.test(projectName));
   if (!rule) return null;
-  const branch = await prisma.branch.findFirst({
-    where: { name: rule.branchName },
+  const domain = await prisma.domain.findFirst({
+    where: { name: rule.domainName },
   });
-  return branch?.id ?? null;
+  return domain?.id ?? null;
 }
 
 export async function upsertProjectFromSync(input: {
   name: string;
-  branchId: string;
+  domainId: string;
   status?: string;
   liveUrl?: string;
   repoUrl?: string;
@@ -372,8 +372,8 @@ export async function upsertProjectFromSync(input: {
   accountLabel: string;
 }) {
   // Naming-convention match takes priority over the caller's default (usually "Unassigned").
-  const matchedBranchId = await matchBranchByName(input.name);
-  const branchId = matchedBranchId ?? input.branchId;
+  const matchedDomainId = await matchDomainByName(input.name);
+  const domainId = matchedDomainId ?? input.domainId;
 
   const existing = await prisma.project.findFirst({
     where: { name: { equals: input.name } },
@@ -382,11 +382,11 @@ export async function upsertProjectFromSync(input: {
 
   if (existing) {
     // Only move an existing project if it's still sitting in Unassigned — never override a human's manual assignment.
-    const currentBranch = await prisma.branch.findUnique({
-      where: { id: existing.branchId },
+    const currentDomain = await prisma.domain.findUnique({
+      where: { id: existing.domainId },
     });
     const shouldReassign =
-      matchedBranchId && currentBranch?.name === "Unassigned";
+      matchedDomainId && currentDomain?.name === "Unassigned";
     await prisma.project.update({
       where: { id: existing.id },
       data: {
@@ -394,10 +394,10 @@ export async function upsertProjectFromSync(input: {
         ...(input.status ? { status: input.status } : {}),
         ...(input.repoUrl ? { repoUrl: input.repoUrl } : {}),
         ...(input.databaseRef ? { databaseRef: input.databaseRef } : {}),
-        ...(shouldReassign ? { branchId: matchedBranchId } : {}),
+        ...(shouldReassign ? { domainId: matchedDomainId } : {}),
       },
     });
-    const finalBranchId = shouldReassign ? matchedBranchId : existing.branchId;
+    const finalDomainId = shouldReassign ? matchedDomainId : existing.domainId;
     const stamp = await prisma.syncStamp.findFirst({
       where: { projectId: existing.id, source: input.syncSource },
     });
@@ -408,7 +408,7 @@ export async function upsertProjectFromSync(input: {
           lastSeenAt: now,
           reachable: true,
           accountLabel: input.accountLabel,
-          assignedBranchId: finalBranchId,
+          assignedDomainId: finalDomainId,
         },
       });
     } else {
@@ -419,7 +419,7 @@ export async function upsertProjectFromSync(input: {
           accountLabel: input.accountLabel,
           lastSeenAt: now,
           reachable: true,
-          assignedBranchId: finalBranchId,
+          assignedDomainId: finalDomainId,
         },
       });
     }
@@ -429,7 +429,7 @@ export async function upsertProjectFromSync(input: {
   const created = await prisma.project.create({
     data: {
       name: input.name,
-      branchId,
+      domainId,
       // GitHub-only discovery tells us nothing about deployment state, so it
       // shouldn't default to "live" like a Vercel-originated project would.
       status: input.status ?? "in_development",
@@ -447,7 +447,7 @@ export async function upsertProjectFromSync(input: {
             accountLabel: input.accountLabel,
             lastSeenAt: now,
             reachable: true,
-            assignedBranchId: branchId,
+            assignedDomainId: domainId,
           },
         ],
       },

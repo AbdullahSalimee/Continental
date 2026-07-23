@@ -1,24 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import type { Branch } from "@/lib/types";
-import { updateProjectBranchAction } from "@/app/actions";
+import type { Domain } from "@/lib/types";
+import { updateProjectDomainAction } from "@/app/actions";
 
-export default function BranchAssignSelect({
+export default function DomainAssignSelect({
   projectId,
-  currentBranchId,
-  branches,
+  currentDomainId,
+  domains,
 }: {
   projectId: string;
-  currentBranchId: string;
-  branches: Branch[];
+  currentDomainId: string;
+  domains: Domain[];
 }) {
   const [moving, setMoving] = useState(false);
 
-  async function handleChange(branchId: string) {
+  async function handleChange(domainId: string) {
     setMoving(true);
     try {
-      await updateProjectBranchAction(projectId, branchId);
+      await updateProjectDomainAction(projectId, domainId);
     } finally {
       setMoving(false);
     }
@@ -26,12 +26,12 @@ export default function BranchAssignSelect({
 
   return (
     <select
-      value={currentBranchId}
+      value={currentDomainId}
       disabled={moving}
       onChange={(e) => handleChange(e.target.value)}
       className="rounded-md border border-border bg-panel-2 px-2 py-1 text-xs text-text-muted outline-none focus:border-live/50 disabled:opacity-50"
     >
-      {branches.map((b) => (
+      {domains.map((b) => (
         <option key={b.id} value={b.id}>
           {b.name}
         </option>

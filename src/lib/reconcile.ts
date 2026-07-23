@@ -3,12 +3,12 @@ import { fuzzyGroup, nameSimilarity, FUZZY_MATCH_THRESHOLD } from "./fuzzy-match
 import type {
   DiscoveredItem,
   MatchSuggestion,
-  BranchSuggestion,
+  DomainSuggestion,
   FieldSuggestion,
   ReconciliationResult,
 } from "./discover-types";
 
-const KNOWN_BRANCHES = ["KDH", "Remakes Labs", "Fiverr"];
+const KNOWN_DOMAINS = ["KDH", "Remakes Labs", "Fiverr"];
 
 // Orchestrates one Discover run:
 //   1. Exact-name grouping (free, instant) — is this the same project as
@@ -32,7 +32,7 @@ export async function reconcile(
   items: DiscoveredItem[],
 ): Promise<ReconciliationResult> {
   const matches: MatchSuggestion[] = [];
-  const branchSuggestions: BranchSuggestion[] = [];
+  const domainSuggestions: DomainSuggestion[] = [];
   const fieldSuggestions: FieldSuggestion[] = [];
 
   // Step 1: exact name match (case/whitespace-insensitive)
@@ -103,7 +103,7 @@ export async function reconcile(
     return {
       matches,
       standalone,
-      branchSuggestions,
+      domainSuggestions,
       fieldSuggestions,
       aiUsed: false,
       aiError: "GROQ_API_KEY not configured",
@@ -127,7 +127,7 @@ export async function reconcile(
 
   const aiResult = await callGrokReconcile(
     groqInput,
-    KNOWN_BRANCHES,
+    KNOWN_DOMAINS,
     alreadyMatchedIds,
   );
 
@@ -138,7 +138,7 @@ export async function reconcile(
     return {
       matches,
       standalone,
-      branchSuggestions,
+      domainSuggestions,
       fieldSuggestions,
       aiUsed: false,
       aiError: aiResult.error,
@@ -160,7 +160,7 @@ export async function reconcile(
       m.itemIds.forEach((id) => fuzzyMatched.add(id)); // reuse set to mark "grouped"
     }
   }
-  branchSuggestions.push(...aiResult.branchSuggestions);
+  domainSuggestions.push(...aiResult.domainSuggestions);
   fieldSuggestions.push(...aiResult.fieldSuggestions);
 
   const standalone = items.filter(
@@ -170,7 +170,7 @@ export async function reconcile(
   return {
     matches,
     standalone,
-    branchSuggestions,
+    domainSuggestions,
     fieldSuggestions,
     aiUsed: true,
   };
@@ -178,32 +178,32 @@ export async function reconcile(
 
 interface GroqReconcileOutput {
   matches: MatchSuggestion[];
-  branchSuggestions: BranchSuggestion[];
+  domainSuggestions: DomainSuggestion[];
   fieldSuggestions: FieldSuggestion[];
 }
 
 async function callGrokReconcile(
   items: DiscoveredItem[],
-  branchNames: string[],
+  domainNames: string[],
   alreadyMatchedIds: Set<string>,
 ): Promise<
   ({ ok: true } & GroqReconcileOutput) | { ok: false; error: string }
 > {
-  const systemPrompt = `You reconcile project data discovered across Vercel, GitHub, and Supabase for a small company's internal dashboard. You will be given a JSON array of items with an index-based id. Some items are marked "alreadyMatched": true — these have ALREADY been grouped with another item by a separate, more reliable name-matching step. Do NOT propose a match for them and do NOT include them in the "matches" array under any circumstances, even if you think you see a better grouping — that decision is final and out of scope here. You may still suggest a branch or fill in missing fields for them.
+  const systemPrompt = `You reconcile project data discovered across Vercel, GitHub, and Supabase for a small company's internal dashboard. You will be given a JSON array of items with an index-based id. Some items are marked "alreadyMatched": true — these have ALREADY been grouped with another item by a separate, more reliable name-matching step. Do NOT propose a match for them and do NOT include them in the "matches" array under any circumstances, even if you think you see a better grouping — that decision is final and out of scope here. You may still suggest a domain or fill in missing fields for them.
 
 Respond with ONLY a raw JSON object, no markdown, no commentary, matching exactly this shape:
 {
   "matches": [{ "itemIds": ["<id>", "<id>"], "suggestedName": "string", "confidence": 0.0-1.0, "reasoning": "short reason" }],
-  "branchSuggestions": [{ "itemId": "<id>", "suggestedBranchName": "<one of the branch names given below>", "confidence": 0.0-1.0, "reasoning": "short reason" }],
+  "domainSuggestions": [{ "itemId": "<id>", "suggestedDomainName": "<one of the domain names given below>", "confidence": 0.0-1.0, "reasoning": "short reason" }],
   "fieldSuggestions": [{ "itemId": "<id>", "suggestedStatus": "live | broken | in_development | archived | demo_only", "suggestedDescription": "one short sentence describing what the project actually is/does", "confidence": 0.0-1.0, "reasoning": "short reason" }]
 }
-Available branches (suggest ONLY from this exact list — never invent a branch name): ${branchNames.join(", ") || "(none configured yet)"}
+Available domains (suggest ONLY from this exact list — never invent a domain name): ${domainNames.join(", ") || "(none configured yet)"}
 
 Rules:
 - NEVER include an "alreadyMatched": true item's id in the "matches" array, alone or grouped — see instruction above.
 - Only include a NEW match group (for items not already matched) if you are reasonably confident (>0.5) the items are the SAME real-world project across different sources. Do not merge items just because they share a generic word.
 - For fieldSuggestions: give your best real guess at status and a one-sentence description for EVERY item that's missing one, using its name/description/language/source as context. A short educated guess (clearly marked with an honest confidence score) is more useful here than omitting it — this data is reviewed by a human before anything is saved, so it's fine to be wrong sometimes as long as confidence reflects that.
-- For branchSuggestions: give a branch pick for EVERY item, even the ones already matched or without an obvious signal — pick the closest fit from the available branches based on whatever name/description/language you have, and be honest in the confidence score when it's a weak guess. Do not omit an item just because you're unsure; a low-confidence pick is more useful to the human reviewer than no suggestion at all, since every pick here is reviewed and can be rejected or changed before anything is saved.
+- For domainSuggestions: give a domain pick for EVERY item, even the ones already matched or without an obvious signal — pick the closest fit from the available domains based on whatever name/description/language you have, and be honest in the confidence score when it's a weak guess. Do not omit an item just because you're unsure; a low-confidence pick is more useful to the human reviewer than no suggestion at all, since every pick here is reviewed and can be rejected or changed before anything is saved.
 - confidence reflects your actual certainty, not a fixed number — a forced guess with little signal should score low (e.g. 0.2-0.4), a strong signal should score high (0.8+).`;
 
   const userPrompt = JSON.stringify(
@@ -239,11 +239,11 @@ Rules:
     )
     .map((m) => ({ ...m, method: "ai" as const }));
 
-  const branchSuggestions = (parsed.branchSuggestions ?? [])
+  const domainSuggestions = (parsed.domainSuggestions ?? [])
     .filter(
       (b) =>
         validItemIds.has(b.itemId) &&
-        branchNames.includes(b.suggestedBranchName),
+        domainNames.includes(b.suggestedDomainName),
     )
     .map((b) => ({ ...b, method: "ai" as const }));
 
@@ -251,5 +251,5 @@ Rules:
     .filter((f) => validItemIds.has(f.itemId))
     .map((f) => ({ ...f, method: "ai" as const }));
 
-  return { ok: true, matches, branchSuggestions, fieldSuggestions };
+  return { ok: true, matches, domainSuggestions, fieldSuggestions };
 }

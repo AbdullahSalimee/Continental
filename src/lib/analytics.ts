@@ -1,42 +1,42 @@
 import {
-  getBranches,
+  getDomains,
   getDepartments,
   getPeople,
   getProfitEntries,
   getProjects,
-  getBranchFocusNotes,
+  getDomainFocusNotes,
 } from "./store";
-import type { Branch, Project } from "./types";
+import type { Domain, Project } from "./types";
 
 const STALE_DAYS = 60;
 
-export async function branchProjects(branchId: string): Promise<Project[]> {
+export async function domainProjects(domainId: string): Promise<Project[]> {
   const projects = await getProjects();
-  return projects.filter((p) => p.branchId === branchId);
+  return projects.filter((p) => p.domainId === domainId);
 }
 
-export async function branchActivePeople(branchId: string) {
+export async function domainActivePeople(domainId: string) {
   const people = await getPeople();
-  return people.filter((p) => p.active && p.branchIds.includes(branchId));
+  return people.filter((p) => p.active && p.domainIds.includes(domainId));
 }
 
-export async function branchProfitTotal(branchId: string) {
+export async function domainProfitTotal(domainId: string) {
   const profitEntries = await getProfitEntries();
-  const entries = profitEntries.filter((e) => e.branchId === branchId);
+  const entries = profitEntries.filter((e) => e.domainId === domainId);
   const total = entries.reduce((sum, e) => sum + e.amount, 0);
   const currency = entries[0]?.currency ?? "PKR";
   return { total, currency, entries };
 }
 
-export async function branchFocusNote(branchId: string) {
-  const notes = await getBranchFocusNotes();
-  return notes.find((n) => n.branchId === branchId)?.note ?? null;
+export async function domainFocusNote(domainId: string) {
+  const notes = await getDomainFocusNotes();
+  return notes.find((n) => n.domainId === domainId)?.note ?? null;
 }
 
-export type BranchHealth = "on_track" | "needs_attention" | "stale";
+export type DomainHealth = "on_track" | "needs_attention" | "stale";
 
-export async function branchHealth(branchId: string): Promise<{ health: BranchHealth; reason: string }> {
-  const projs = await branchProjects(branchId);
+export async function domainHealth(domainId: string): Promise<{ health: DomainHealth; reason: string }> {
+  const projs = await domainProjects(domainId);
   const brokenCount = projs.filter((p) => p.status === "broken").length;
   const staleCount = projs.filter((p) => {
     const days = (Date.now() - new Date(p.lastKnownUpdateAt).getTime()) / 86400000;
@@ -53,18 +53,18 @@ export async function branchHealth(branchId: string): Promise<{ health: BranchHe
 }
 
 export async function continentalRollup() {
-  const [projects, people, profitEntries, branches] = await Promise.all([
+  const [projects, people, profitEntries, domains] = await Promise.all([
     getProjects(),
     getPeople(),
     getProfitEntries(),
-    getBranches(),
+    getDomains(),
   ]);
   const totalProjects = projects.length;
   const totalActivePeople = people.filter((p) => p.active).length;
   const totalProfitPKR = profitEntries.filter((e) => e.currency === "PKR").reduce((s, e) => s + e.amount, 0);
   const totalProfitUSD = profitEntries.filter((e) => e.currency === "USD").reduce((s, e) => s + e.amount, 0);
 
-  return { totalProjects, totalActivePeople, totalProfitPKR, totalProfitUSD, branches };
+  return { totalProjects, totalActivePeople, totalProfitPKR, totalProfitUSD, domains };
 }
 
 export function projectDrift(p: Project): { drifted: boolean; reason: string | null } {
@@ -85,12 +85,12 @@ export function projectDrift(p: Project): { drifted: boolean; reason: string | n
   return { drifted: false, reason: null };
 }
 
-export async function branchDepartments(branchId: string) {
+export async function domainDepartments(domainId: string) {
   const departments = await getDepartments();
-  return departments.filter((d) => d.branchId === branchId);
+  return departments.filter((d) => d.domainId === domainId);
 }
 
-export async function findBranch(id: string): Promise<Branch | undefined> {
-  const branches = await getBranches();
-  return branches.find((b) => b.id === id);
+export async function findDomain(id: string): Promise<Domain | undefined> {
+  const domains = await getDomains();
+  return domains.find((b) => b.id === id);
 }

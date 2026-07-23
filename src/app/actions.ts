@@ -26,16 +26,16 @@ export async function signOutAction() {
   await signOut({ redirectTo: "/login" });
 }
 
-export async function updateProjectBranchAction(
+export async function updateProjectDomainAction(
   projectId: string,
-  branchId: string,
+  domainId: string,
 ) {
   await requireCurrentUser(); // any signed-in user may re-assign; tighten to superadmin-only if needed
-  await prisma.project.update({ where: { id: projectId }, data: { branchId } });
-  // Keep sync history honest: a manual move should show up as the latest assigned branch too.
+  await prisma.project.update({ where: { id: projectId }, data: { domainId } });
+  // Keep sync history honest: a manual move should show up as the latest assigned domain too.
   await prisma.syncStamp.updateMany({
     where: { projectId },
-    data: { assignedBranchId: branchId },
+    data: { assignedDomainId: domainId },
   });
   // Registry lives at /projects and branch dashboards read the same Project
   // table, so invalidate the whole tree rather than just "/" — otherwise a

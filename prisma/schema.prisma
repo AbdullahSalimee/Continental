@@ -28,7 +28,7 @@ model Person {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  branches    Branch[]     @relation("PersonBranches")
+  domains     Domain[]     @relation("PersonDomains")
   departments Department[] @relation("PersonDepartments")
 
   ownedProjects        Project[]               @relation("ProjectOwners")
@@ -36,7 +36,7 @@ model Person {
   grantsIssued         AccessGrant[]           @relation("GrantsByPerson")
   auditActions         AuditLogEntry[]         @relation("AuditActor")
   profitEntries        ProfitEntry[]           @relation("ProfitRecordedBy")
-  focusNotes           BranchFocusNote[]       @relation("FocusNoteBy")
+  focusNotes           DomainFocusNote[]       @relation("FocusNoteBy")
   leadFlowLeads        LeadFlowLead[]          @relation("LeadOwner")
   ownedExternalAccts   ExternalAccount[]       @relation("ExternalAccountOwner")
   externalAccountAccess ExternalAccountAccess[]
@@ -44,26 +44,26 @@ model Person {
 
 // ── Reference data (open/extensible) ────────────────────────────────────────
 
-model Branch {
-  id        String   @id @default(cuid())
-  name      String
-  focus     String
-  notes     String?
-  branchType String  @default("standard") // "standard" | "no_clients" — drives which fields/forms show per branch
-  createdAt DateTime @default(now())
+model Domain {
+  id         String   @id @default(cuid())
+  name       String
+  focus      String
+  notes      String?
+  domainType String  @default("standard") // "standard" | "no_clients" — drives which fields/forms show per domain
+  createdAt  DateTime @default(now())
 
-  departments Department[]
-  projects    Project[]
-  clients     Client[]
+  departments  Department[]
+  projects     Project[]
+  clients      Client[]
   profitEntries ProfitEntry[]
-  focusNote   BranchFocusNote?
-  people      Person[] @relation("PersonBranches")
+  focusNote    DomainFocusNote?
+  people       Person[] @relation("PersonDomains")
 }
 
 model Department {
   id               String  @id @default(cuid())
-  branchId         String
-  branch           Branch  @relation(fields: [branchId], references: [id])
+  domainId         String
+  domain           Domain  @relation(fields: [domainId], references: [id])
   name             String
   isRestricted     Boolean @default(false)
   restrictedReason String?
@@ -75,8 +75,8 @@ model Department {
 model Client {
   id            String   @id @default(cuid())
   name          String
-  branchId      String
-  branch        Branch   @relation(fields: [branchId], references: [id])
+  domainId      String
+  domain        Domain   @relation(fields: [domainId], references: [id])
   isOutOfDomain Boolean  @default(false)
   notes         String?
   projects      Project[]
@@ -112,8 +112,8 @@ model ExternalAccountAccess {
 model Project {
   id                 String    @id @default(cuid())
   name               String
-  branchId           String
-  branch             Branch    @relation(fields: [branchId], references: [id])
+  domainId           String
+  domain             Domain    @relation(fields: [domainId], references: [id])
   departmentId       String?
   department         Department? @relation(fields: [departmentId], references: [id])
   liveUrl            String?
@@ -139,14 +139,14 @@ model Project {
 }
 
 model SyncStamp {
-  id              String   @id @default(cuid())
-  projectId       String
-  project         Project  @relation(fields: [projectId], references: [id])
-  source          String   // vercel_api | github_api | supabase_api | manual
-  accountLabel    String
-  lastSeenAt      DateTime
-  reachable       Boolean?
-  assignedBranchId String? // which branch this project was placed in as of this sync (null = left Unassigned)
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id])
+  source           String   // vercel_api | github_api | supabase_api | manual
+  accountLabel     String
+  lastSeenAt       DateTime
+  reachable        Boolean?
+  assignedDomainId String? // which domain this project was placed in as of this sync (null = left Unassigned)
 }
 
 // ── Module B: Unified Inbox ──────────────────────────────────────────────────
@@ -179,12 +179,12 @@ model InboxMessage {
   gmailMessageId     String?   @unique
 }
 
-// ── Module C: Branch Intelligence ───────────────────────────────────────────
+// ── Module C: Domain Intelligence ───────────────────────────────────────────
 
 model ProfitEntry {
   id                 String   @id @default(cuid())
-  branchId           String
-  branch             Branch   @relation(fields: [branchId], references: [id])
+  domainId           String
+  domain             Domain   @relation(fields: [domainId], references: [id])
   amount             Float
   currency           String
   note               String
@@ -194,10 +194,10 @@ model ProfitEntry {
   verified           String   @default("self_reported")
 }
 
-model BranchFocusNote {
+model DomainFocusNote {
   id                String   @id @default(cuid())
-  branchId          String   @unique
-  branch            Branch   @relation(fields: [branchId], references: [id])
+  domainId          String   @unique
+  domain            Domain   @relation(fields: [domainId], references: [id])
   note              String
   updatedAt         DateTime @updatedAt
   updatedByPersonId String
@@ -210,7 +210,7 @@ model AccessGrant {
   id                 String    @id @default(cuid())
   personId           String
   person             Person    @relation("GrantsToPerson", fields: [personId], references: [id])
-  targetType         String    // project | branch | department
+  targetType         String    // project | domain | department
   targetId           String
   level              String    // owner | editor | viewer
   vaultReference     String?
@@ -265,5 +265,3 @@ model LeadFlowLead {
   owner         Person   @relation("LeadOwner", fields: [ownerPersonId], references: [id])
   createdAt     DateTime @default(now())
 }
-
-
