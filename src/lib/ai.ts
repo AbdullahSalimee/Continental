@@ -45,7 +45,11 @@ export async function callGroqJSON(
           { role: "user", content: userPrompt },
         ],
         temperature: 0, // deterministic-as-possible; we still cache by input hash on top of this
-        max_tokens: 2000,
+        max_tokens: 8000, // raised from 2000: every discovered item now goes
+        // through this call (match + branch + field verdicts), not just a
+        // small leftover subset, so the JSON response is much larger — 2000
+        // was silently truncating fieldSuggestions (last key in the schema)
+        // on runs with ~40+ items.
         response_format: { type: "json_object" }, // Groq/OpenAI-style forced JSON output
       }),
       signal: controller.signal,
@@ -61,8 +65,16 @@ export async function callGroqJSON(
 
     const data = await res.json();
     const text = data.choices?.[0]?.message?.content;
+    const finishReason = data.choices?.[0]?.finish_reason;
     if (typeof text !== "string") {
       return { ok: false, error: "Groq response missing message content" };
+    }
+    if (finishReason === "length") {
+      return {
+        ok: false,
+        error:
+          "Groq response was cut off by max_tokens before finishing (finish_reason: length) — increase max_tokens or send fewer items per call.",
+      };
     }
 
     return { ok: true, text };

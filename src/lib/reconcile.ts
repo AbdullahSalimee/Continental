@@ -1,5 +1,5 @@
-import { callGrokJSON, extractJSON, isAIConfigured } from "./ai";
-import { fuzzyGroup, guessBranchByKeywords } from "./fuzzy-match";
+import { callGroqJSON, extractJSON, isAIConfigured } from "./ai";
+import { fuzzyGroup } from "./fuzzy-match";
 import type {
   DiscoveredItem,
   MatchSuggestion,
@@ -11,13 +11,23 @@ import type {
 const KNOWN_BRANCHES = ["KDH", "Remakes Labs", "Fiverr"];
 
 // Orchestrates one Discover run:
-//   1. Exact-name grouping (free, instant)
-//   2. Fuzzy grouping on what's left (free, instant)
-//   3. Keyword branch guesses on what's left (free, instant)
-//   4. Whatever is STILL ambiguous after 1-3 goes to Grok in one batched
-//      call, asking it to match + assign branch + infer status/description.
-//      If Grok is unconfigured or the call fails, we skip step 4 entirely —
-//      Discover still completes using only the deterministic results.
+//   1. Exact-name grouping (free, instant) — is this the same project as
+//      another item, by identical name?
+//   2. Fuzzy grouping on what's left (free, instant) — same question,
+//      allowing near-identical names.
+//   3. EVERY resulting project — whether it came out of step 1/2 as a
+//      matched group, or is standing alone as its own project — goes to
+//      Groq in one batched call. Groq is the ONLY thing that assigns a
+//      branch and writes status/description; there is no separate keyword
+//      pre-filter. Groq always returns a branch pick (best guess, honestly
+//      scored) rather than omitting one when unsure — every project gets a
+//      real, reviewable suggestion instead of silently getting none. All of
+//      this is written as pending AIDecision rows; nothing here touches the
+//      Project table, and a human can accept, reject, or override any of it
+//      at any time via /api/discover/apply.
+//   If Groq is unconfigured or the call fails, we skip step 3 entirely —
+//   Discover still completes using only the match results from 1-2, with no
+//   branch or field suggestions.
 export async function reconcile(
   items: DiscoveredItem[],
 ): Promise<ReconciliationResult> {
@@ -65,53 +75,7 @@ export async function reconcile(
 
   const byId = new Map(items.map((i) => [i.id, i]));
 
-  // Step 3: keyword branch guesses on every item not yet grouped (grouped
-  // items get their branch guessed too, from the "anchor" item's text)
-  for (const item of items) {
-    const guess = guessBranchByKeywords(item.name, item.description);
-    if (guess) {
-      branchSuggestions.push({
-        itemId: item.id,
-        suggestedBranchName: guess.branchName,
-        confidence: guess.confidence,
-        method: "keyword",
-      });
-    }
-  }
-
-  const keywordGuessedIds = new Set(branchSuggestions.map((b) => b.itemId));
-
-  // Step 4: whatever is still ambiguous goes to Groq. IMPORTANT: "ambiguous"
-  // means no match was found at all — an item that was ALREADY matched by
-  // exact or fuzzy name must never be re-sent, even if it doesn't have a
-  // branch guess yet, otherwise Groq re-litigates settled matches (wastes
-  // tokens and can produce a second, possibly different, confidence score
-  // for something that was already resolved for free).
-  const stillAmbiguous = items.filter((i) => {
-    const alreadyMatched = exactMatched.has(i.id) || fuzzyMatched.has(i.id);
-    const noBranchGuess = !keywordGuessedIds.has(i.id);
-    // Escalate to Groq only if: (a) it has no match at all, OR
-    // (b) it's unmatched-but-standalone AND still needs a branch guess.
-    // A matched item skips Groq's matching job but MAY still want a branch/
-    // field suggestion — handled separately below, not by resending it as
-    // if it were unmatched.
-    return !alreadyMatched;
-  });
-
-  // Items that already have a confirmed match but are missing a branch
-  // guess still deserve a branch/field suggestion — just not a re-match.
-  // These go to Groq too, but tagged so the prompt doesn't ask it to
-  // re-decide matching for them.
-  const matchedButNeedsBranchOrFields = items.filter((i) => {
-    const alreadyMatched = exactMatched.has(i.id) || fuzzyMatched.has(i.id);
-    return alreadyMatched && !keywordGuessedIds.has(i.id);
-  });
-
-  if (
-    (stillAmbiguous.length === 0 &&
-      matchedButNeedsBranchOrFields.length === 0) ||
-    !isAIConfigured()
-  ) {
+  if (!isAIConfigured()) {
     const standalone = items.filter(
       (i) => !exactMatched.has(i.id) && !fuzzyMatched.has(i.id),
     );
@@ -121,24 +85,18 @@ export async function reconcile(
       branchSuggestions,
       fieldSuggestions,
       aiUsed: false,
-      aiError: isAIConfigured() ? undefined : "GROQ_API_KEY not configured",
+      aiError: "GROQ_API_KEY not configured",
     };
   }
 
-  // Field enrichment (status/description) is asked for on ANY item missing
-  // those details — not just unmatched ones. A project can be perfectly
-  // matched by exact name and still have no description; that's exactly
-  // the "left blank many times" gap this exists to close.
-  const needsEnrichment = items.filter((i) => !i.description || !i.status);
-
-  // Union of everyone going into the single Groq call: unmatched items
-  // (need matching + branch + fields), matched-but-branch-less items (need
-  // branch + fields only), and anyone else missing fields (fields only).
-  const groqInputMap = new Map<string, DiscoveredItem>();
-  for (const i of stillAmbiguous) groqInputMap.set(i.id, i);
-  for (const i of matchedButNeedsBranchOrFields) groqInputMap.set(i.id, i);
-  for (const i of needsEnrichment) groqInputMap.set(i.id, i);
-  const groqInput = Array.from(groqInputMap.values());
+  // Step 3: EVERY item goes to Groq — matched (part of a group from step
+  // 1/2) or standalone, it doesn't matter. Groq is the only thing that
+  // decides branch and writes status/description; nothing is pre-filtered
+  // out by keyword rules before it gets there. Groq is still told which
+  // items are already matched so it never re-litigates a settled match —
+  // it just skips the matching question for those and goes straight to
+  // branch + field suggestions.
+  const groqInput = items;
 
   const alreadyMatchedIds = new Set(
     items
@@ -146,7 +104,11 @@ export async function reconcile(
       .filter((id) => exactMatched.has(id) || fuzzyMatched.has(id)),
   );
 
-  const aiResult = await callGroqReconcile(groqInput, alreadyMatchedIds);
+  const aiResult = await callGrokReconcile(
+    groqInput,
+    KNOWN_BRANCHES,
+    alreadyMatchedIds,
+  );
 
   if (!aiResult.ok) {
     const standalone = items.filter(
@@ -220,8 +182,8 @@ Rules:
 - NEVER include an "alreadyMatched": true item's id in the "matches" array, alone or grouped — see instruction above.
 - Only include a NEW match group (for items not already matched) if you are reasonably confident (>0.5) the items are the SAME real-world project across different sources. Do not merge items just because they share a generic word.
 - For fieldSuggestions: give your best real guess at status and a one-sentence description for EVERY item that's missing one, using its name/description/language/source as context. A short educated guess (clearly marked with an honest confidence score) is more useful here than omitting it — this data is reviewed by a human before anything is saved, so it's fine to be wrong sometimes as long as confidence reflects that.
-- Only suggest a branch if there's a real content signal (business type, description, purpose) AND it's one of the available branches listed above. Otherwise omit it.
-- confidence reflects your actual certainty, not a fixed number.`;
+- For branchSuggestions: give a branch pick for EVERY item, even the ones already matched or without an obvious signal — pick the closest fit from the available branches based on whatever name/description/language you have, and be honest in the confidence score when it's a weak guess. Do not omit an item just because you're unsure; a low-confidence pick is more useful to the human reviewer than no suggestion at all, since every pick here is reviewed and can be rejected or changed before anything is saved.
+- confidence reflects your actual certainty, not a fixed number — a forced guess with little signal should score low (e.g. 0.2-0.4), a strong signal should score high (0.8+).`;
 
   const userPrompt = JSON.stringify(
     items.map((i) => ({
