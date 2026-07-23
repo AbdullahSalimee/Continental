@@ -49,10 +49,13 @@ export async function POST(req: Request) {
       },
     );
 
-    // If it's not an organization, try it as a user
+    // If it's not an organization, try it as the token's own account —
+    // /users/{name}/repos only returns PUBLIC repos no matter the token's
+    // scope, so a private repo like this one would silently never sync.
+    // /user/repos uses the token's identity and includes owned private repos.
     if (res.status === 404) {
       res = await fetch(
-        `https://api.github.com/users/${org}/repos?per_page=100`,
+        `https://api.github.com/user/repos?per_page=100&affiliation=owner&visibility=all`,
         {
           headers,
           cache: "no-store",

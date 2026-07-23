@@ -6,28 +6,19 @@ KDH, and whatever gets added next). Built from the Continental OS Pre-Doc PRD.
 This is a **working, runnable application** with real persistence and real
 authentication — not a mockup, and not a demo that resets when you restart it.
 
-## What changed since the first pass
+## What's here
 
-An earlier version of this shipped with an in-memory store and a client-side
-role-switcher dropdown. Both were correctly flagged as gaps and have been replaced:
-
-| Gap | Fixed by |
+| Feature | How it works |
 |---|---|
-| In-memory data, resets on restart | **SQLite via Prisma** (`prisma/schema.prisma`). Persists across restarts. |
-| Client-side role dropdown — anyone could "pick" superadmin | **Auth.js (NextAuth v5)** with a Credentials provider, bcrypt password hashes, real signed sessions. Every page calls `requireCurrentUser()` server-side. |
-| LeadFlow visibility only logged on grant/revoke, not on view | LeadFlow page writes an audit row (`view_leadflow` or `denied_leadflow_attempt`) on **every load**, granted or denied. |
-| Module D tracked in-app grants only, not real external logins | Added `ExternalAccount` + `ExternalAccountAccess` models — Module D now shows who owns and who shares each actual Vercel/GitHub/Supabase/Google login. |
-| Sync routes were manual-trigger only | Added `/api/cron` + `vercel.json` cron schedule (every 6h), protected by `CRON_SECRET`. Manual trigger (superadmin session) still works from the UI. |
-| Gmail was fully faked (static seed data, no wiring) | Real per-inbox OAuth flow (`/api/gmail/connect` → Google consent → `/api/gmail/callback`) and a real polling route (`/api/sync/gmail`) using `googleapis`. Needs your own Google Cloud OAuth app credentials to activate — see below. |
-
-**One bug this round of testing caught and fixed:** the RBAC check for LeadFlow
-originally only allowed superadmins or people holding an explicit `AccessGrant` —
-it forgot that actual LeadFlow *staff* (people whose `departmentIds` includes the
-department) should see their own department's data by default, per the PRD's own
-"Department member — visibility limited to their own department's tools" rule.
-Tested with four real logged-in sessions (superadmin, LeadFlow staff, a developer
-with a temporary grant, and a true outsider with neither) before and after the fix
-— see `src/lib/rbac.ts`.
+| **Auth** | Auth.js (NextAuth v5) with Credentials provider, bcrypt password hashes, real signed JWT sessions. Every page calls `requireCurrentUser()` server-side. |
+| **Persistence** | SQLite via Prisma (`prisma/schema.prisma`). Swap the datasource for Postgres in production. |
+| **Project Registry (Module A)** | All projects across every branch. Synced from Vercel, GitHub, and Supabase — or entered manually. Drift detector flags projects untouched 60+ days. |
+| **Unified Inbox (Module B)** | A triage layer over connected Gmail inboxes. Real per-inbox OAuth (`/api/gmail/connect` → Google consent → `/api/gmail/callback`) and polling (`/api/sync/gmail`) using `googleapis`. |
+| **Branch Intelligence (Module C)** | Overview dashboard with per-branch health (on_track / stale / needs_attention), project counts, profit, focus notes, and LeadFlow embedding (KDH). |
+| **Access & Ownership (Module D)** | In-app access grants with expiration, external account logins (Vercel/GitHub/Supabase/Google), and a full audit log (superadmin-only). |
+| **Discover — AI-powered reconciliation** | One-click `/api/discover` fetches everything from Vercel + GitHub + Supabase in parallel, exact/fuzzy-matches cross-source duplicates, then passes the rest to **Groq** (`llama-3.3-70b-versatile`) for branch assignment + status/description enrichment. Results show as **reviewable decisions** — nothing touches the Project table until a human approves each suggestion via `/api/discover/apply`. See `AI_IMPLEMENTATION.md`. |
+| **LeadFlow isolation** | Restricted department data is gated by DATA (`isRestricted` flag), not by name-based checks. Members of the restricted department see their own data by default; outsiders need an explicit, expiring `AccessGrant`. Every view (granted or denied) is logged to the audit log. |
+| **Cron automation** | `/api/cron` (Vercel Cron, every 6h) fans out to all sync targets, protected by `CRON_SECRET`. On-demand triggers also work via the UI (superadmin session). |
 
 ## Stack
 
@@ -36,11 +27,7 @@ with a temporary grant, and a true outsider with neither) before and after the f
 - **Auth.js (NextAuth v5)** for real, server-verified sessions
 - **Tailwind CSS v4** for styling, **Framer Motion** for the motion system
 - **googleapis** for real Gmail OAuth + polling
-
-### On "uipro init --ai claude"
-
-Still not a tool I could find or verify, so I used the standard, verifiable path:
-`create-next-app` (TypeScript + Tailwind + App Router) plus `npm i framer-motion`.
+- **Groq API** (`llama-3.3-70b-versatile`) for AI-powered project reconciliation and branch/field suggestions — free tier, OpenAI-compatible endpoint. Falls back to deterministic fuzzy matching when unconfigured.
 
 ## Running it
 
@@ -60,14 +47,15 @@ The repo ships with a working `dev.db` already migrated and seeded, so
 
 Open http://localhost:3000 — you'll land on `/login`.
 
-### Demo accounts (all share the password `continental-demo`)
+### Demo accounts (all share the password `continental-2026`)
 
-| Email | Role | What to try |
-|---|---|---|
-| `sam@continental.internal` | superadmin | Sees everything, including LeadFlow and the audit log |
-| `cofounder@continental.internal` | superadmin | Same as Sam |
-| `ali@continental.internal` | developer | Sees Remake Labs projects; has a **temporary 5-day grant** into LeadFlow — try it before/after that expires |
-| `hina@kdh.internal` / `bilal@kdh.internal` | department_member | Actual LeadFlow staff — see LeadFlow by default, nothing else outside their branch |
+| Email | Name | Role | What to try |
+|---|---|---|---|
+| `abdullaharifsalimee@gmail.com` | Abdullah Arif (Co-owner) | superadmin | Sees everything, including LeadFlow and the audit log |
+| `furqanahmed1872@gmail.com` | Furqan Ahmed (Co-owner) | superadmin | Same as Abdullah |
+| `drmuhammadarifsaleemi@gmail.com` | Arslan Ahmed (Developer) | developer | Sees KDH + Remakes Labs projects; attached to LeadFlow dept |
+| `abdulrehmanch4230@gmail.com` | Sukhran (Leads) | department_member | LeadFlow staff — sees LeadFlow by default, nothing outside KDH |
+| `jazilansari12@gmail.com` | Jazil Sardar (Leads) | department_member | Same as Sukhran |
 
 **Rotate all of these before this touches real company data** — they're seeded with a shared, known password.
 
@@ -99,38 +87,57 @@ GOOGLE_CLIENT_ID=...        # your own Google Cloud OAuth app
 GOOGLE_CLIENT_SECRET=...
 
 CRON_SECRET=...             # shared secret for /api/cron and scheduled sync
+
+LEADFLOW_SUPABASE_URL=...   # external LeadFlow Supabase project (falls back to local cache)
+LEADFLOW_SUPABASE_SERVICE_KEY=...
+
+GROQ_API_KEY=...            # Groq for AI Discover (deterministic fuzzy-match fallback if absent)
+GROQ_MODEL=...              # default: llama-3.3-70b-versatile
 ```
 
 ## Architecture
 
 ```
 prisma/
-  schema.prisma        Full data model — all 4 modules + auth + external accounts
-  seed.ts               Seeds the same demo company data, with real password hashes
+  schema.prisma        Full data model — all 4 modules + auth + external accounts + AI
+  seed.ts               Seeds real Continental team data, with real password hashes
 src/
   lib/
     prisma.ts            Prisma client singleton
     store.ts              Repository layer — every function is a real DB query
     auth.ts                Auth.js config (Credentials provider, JWT sessions)
     session.ts             requireCurrentUser() (redirects) / getSessionUserOrNull() (for APIs)
-    rbac.ts                 Access-control logic, incl. LeadFlow isolation (now fixed)
+    rbac.ts                 Access-control logic, incl. LeadFlow isolation
     analytics.ts             Async rollups for the Branch Dashboard (Module C)
     cron-auth.ts              Shared authorizer for sync routes (session OR CRON_SECRET)
     gmail.ts                   OAuth2 client factory for Gmail
+    ai.ts                      Groq API client (chat/completions, JSON mode, 10s timeout)
+    fuzzy-match.ts            Deterministic name similarity + clustering (Levenshtein-based)
+    discover-types.ts          Types for Discover: DiscoveredItem, MatchSuggestion, etc.
+    reconcile.ts               Orchestrator: exact match → fuzzy match → Groq (branch + field)
   app/
-    login/                       Real credentials login form
-    actions.ts                    Server actions: loginAction, signOutAction
-    page.tsx                       Continental overview (Module C)
-    branches/[branchId]/            Branch detail
-    projects/, projects/[id]/        Project Registry (Module A)
-    inbox/                             Unified Inbox (Module B) + Gmail connect UI
-    access/                             Access & Ownership Map (Module D) + external accounts
-    leadflow/                            LeadFlow — real isolation + audit-on-view
-    api/auth/[...nextauth]/               Auth.js route handler
-    api/sync/{vercel,github,supabase,gmail}/  Sync jobs (session- or cron-authorized)
-    api/cron/                              Scheduled fan-out (see vercel.json)
-    api/gmail/{connect,callback}/           Real per-inbox Gmail OAuth flow
-vercel.json                                Cron schedule (every 6h)
+    actions.ts                    Server actions: loginAction, signOutAction, updateProjectBranchAction,
+                                  addExternalAccountAction
+    login/                        Real credentials login form
+    page.tsx                       Continental overview / Branch Intelligence (Module C)
+    branches/[branchId]/            Branch detail — stats, team, clients, projects, LeadFlow embed
+    projects/                       Project Registry (Module A) — filter, search, drift detector
+    projects/[id]/                  Project detail — all fields, owners, grants, sync history
+    inbox/                          Unified Inbox (Module B) — Gmail connect + message triage
+    access/                         Access & Ownership (Module D) — grants, external accounts, audit log
+    api/
+      auth/[...nextauth]/           Auth.js route handler
+      cron/                         Scheduled fan-out to all sync targets (every 6h)
+      discover/                     Unified Discover: fetches Vercel+GitHub+Supabase, reconciles,
+                                    stores pending AIDecision rows (never auto-writes to Project)
+      discover/apply/               Apply or reject pending decisions — ONLY way to touch Project table
+      sync/{vercel,github,supabase,gmail}/  Per-source sync jobs (cron- or session-authorized)
+      gmail/{connect,callback}/     Real per-inbox Gmail OAuth flow
+      inbox/[id]/handle/            Toggle message handled status
+scripts/
+  wipe-synced-projects.ts   Wipe Project + SyncStamp rows for clean Discover testing
+  wipe-ai-decisions.ts      Wipe AIDecision + DiscoverRun rows
+vercel.json                Cron schedule (every 6h)
 ```
 
 ## Still not fully solved (being upfront about it)
@@ -148,3 +155,7 @@ vercel.json                                Cron schedule (every 6h)
   Bitwarden item IDs/URLs; nothing here stores or displays actual secrets.
 - **The demo password is shared and known.** Fine for evaluating this build,
   not fine once it's holding real KDH/Remake Labs data — rotate immediately.
+- **AI Discover uses Groq (free tier)** — no billing required to start, but rate
+  limits apply. The system gracefully degrades to fuzzy-matching-only if Groq is
+  unconfigured or returns errors. See `AI_IMPLEMENTATION.md` for known risks
+  (false merges, latency, cost creep, data leakage).

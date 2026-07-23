@@ -264,8 +264,14 @@ async function fetchGitHub(): Promise<DiscoveredItem[]> {
       { headers, cache: "no-store" },
     );
     if (res.status === 404) {
+      // /users/{username}/repos only ever returns that user's PUBLIC repos,
+      // regardless of token scope — GitHub's API treats it as "browse this
+      // profile", not "show me what I own". If GITHUB_ORG is actually a
+      // personal account (the org lookup above 404'd), private repos the
+      // token owns would silently never appear. /user/repos uses the
+      // token's own identity instead, so private+owned repos are included.
       res = await fetch(
-        `https://api.github.com/users/${org}/repos?per_page=100`,
+        `https://api.github.com/user/repos?per_page=100&affiliation=owner&visibility=all`,
         { headers, cache: "no-store" },
       );
     }
