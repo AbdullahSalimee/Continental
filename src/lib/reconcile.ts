@@ -1,5 +1,5 @@
 import { callGroqJSON, extractJSON, isAIConfigured } from "./ai";
-import { fuzzyGroup } from "./fuzzy-match";
+import { fuzzyGroup, nameSimilarity, FUZZY_MATCH_THRESHOLD } from "./fuzzy-match";
 import type {
   DiscoveredItem,
   MatchSuggestion,
@@ -58,9 +58,30 @@ export async function reconcile(
 
   const remainingAfterExact = items.filter((i) => !exactMatched.has(i.id));
 
-  // Step 2: fuzzy name match on the rest
+  // Step 1.5: an exact-match group only forms from identically-named items
+  // (e.g. two sources both literally named "taste"). A third source with a
+  // near-identical but not identical name (e.g. GitHub's "taste-app") would
+  // otherwise sit in the leftover pool with no exact-match partner left to
+  // fuzzy-pair against (its "taste" siblings were already consumed above) —
+  // and would wrongly end up standalone, creating a second, duplicate
+  // project. Absorb it into the existing group instead whenever it's a
+  // strong enough fuzzy match for that group's name.
+  const stillRemaining: DiscoveredItem[] = [];
+  for (const item of remainingAfterExact) {
+    const targetMatch = matches.find(
+      (m) => nameSimilarity(item.name, m.suggestedName) >= FUZZY_MATCH_THRESHOLD,
+    );
+    if (targetMatch) {
+      targetMatch.itemIds.push(item.id);
+      exactMatched.add(item.id);
+    } else {
+      stillRemaining.push(item);
+    }
+  }
+
+  // Step 2: fuzzy name match on whatever's left
   const { groups: fuzzyGroups, ungrouped: afterFuzzy } = fuzzyGroup(
-    remainingAfterExact.map((i) => ({ id: i.id, name: i.name })),
+    stillRemaining.map((i) => ({ id: i.id, name: i.name })),
   );
   const fuzzyMatched = new Set<string>();
   for (const g of fuzzyGroups) {
@@ -155,7 +176,7 @@ export async function reconcile(
   };
 }
 
-interface GrokReconcileOutput {
+interface GroqReconcileOutput {
   matches: MatchSuggestion[];
   branchSuggestions: BranchSuggestion[];
   fieldSuggestions: FieldSuggestion[];

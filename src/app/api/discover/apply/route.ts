@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { authorizeSyncRequest } from "@/lib/cron-auth";
 import { upsertProjectFromSync } from "@/lib/store";
@@ -26,9 +27,16 @@ export async function POST(req: Request) {
     );
   }
 
+  // Order matters: a standalone/match decision must be applied before any
+  // assign_branch or suggest_status/description decision for the same item,
+  // since those only update a project that already exists. createdAt asc
+  // mirrors the insertion order in /api/discover (matches first, then
+  // branch/field suggestions), so applying "all" in one call is safe even
+  // though the caller may pass decisionIds in any order.
   const decisions = await prisma.aIDecision.findMany({
     where: { id: { in: decisionIds }, status: "pending" },
     include: { run: true },
+    orderBy: { createdAt: "asc" },
   });
 
   if (decisions.length === 0) {
@@ -70,7 +78,9 @@ export async function POST(req: Request) {
           name: suggestion.suggestedName ?? primary.name,
           branchId: unassigned?.id ?? "",
           status: firstDefined(items.map((i) => statusFrom(i.status))),
-          liveUrl: firstDefined(items.map((i) => i.url)),
+          liveUrl: firstDefined(
+            items.filter((i) => i.source !== "github").map((i) => i.url),
+          ),
           repoUrl: firstDefined(
             items.filter((i) => i.source === "github").map((i) => i.url),
           ),
@@ -101,9 +111,7 @@ export async function POST(req: Request) {
           continue;
         }
         const item = items[0];
-        const existing = await prisma.project.findFirst({
-          where: { name: { equals: item.name } },
-        });
+        const existing = await resolveProjectForItem(item, decision.runId);
         if (existing) {
           await prisma.project.update({
             where: { id: existing.id },
@@ -127,9 +135,7 @@ export async function POST(req: Request) {
         decision.action === "suggest_description"
       ) {
         const item = items[0];
-        const existing = await prisma.project.findFirst({
-          where: { name: { equals: item.name } },
-        });
+        const existing = await resolveProjectForItem(item, decision.runId);
         if (existing) {
           await prisma.project.update({
             where: { id: existing.id },
@@ -153,6 +159,13 @@ export async function POST(req: Request) {
     } catch (err) {
       errors.push(`Decision ${decision.id}: ${(err as Error).message}`);
     }
+  }
+
+  if (applied > 0) {
+    // So the Project Registry table (and branch dashboards, which read the
+    // same data) show newly-applied projects immediately even if the caller
+    // navigates via a server-rendered link rather than the client's own refresh.
+    revalidatePath("/", "layout");
   }
 
   return NextResponse.json({
@@ -192,6 +205,28 @@ export async function DELETE(req: Request) {
     message: `Rejected ${result.count} decision(s).`,
     rejected: result.count,
   });
+}
+
+// A branch/status/description suggestion targets a single source item, but
+// the project it belongs to may have been created under a different
+// *merged* canonical name (e.g. Vercel's "taste" + GitHub's "taste-app" ->
+// project named "Taste"). Prefer the accepted "match" decision from the
+// same run that included this item — it recorded the real targetProjectId
+// — before falling back to a plain name lookup for the simple/standalone case.
+async function resolveProjectForItem(item: DiscoveredItem, runId: string) {
+  const siblingMatches = await prisma.aIDecision.findMany({
+    where: { runId, action: "match", status: "accepted" },
+  });
+  for (const m of siblingMatches) {
+    const ids: string[] = JSON.parse(m.sourceItemIds);
+    if (ids.includes(item.id) && m.targetProjectId) {
+      const byId = await prisma.project.findUnique({
+        where: { id: m.targetProjectId },
+      });
+      if (byId) return byId;
+    }
+  }
+  return prisma.project.findFirst({ where: { name: { equals: item.name } } });
 }
 
 function statusFrom(vercelReadyState: string | undefined): string | undefined {

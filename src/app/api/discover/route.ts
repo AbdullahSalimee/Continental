@@ -56,9 +56,10 @@ export async function POST(req: Request) {
   });
 
   if (existingRun) {
+    const pending = existingRun.decisions.filter((d) => d.status === "pending");
     return NextResponse.json({
       ok: true,
-      message: `Discover found the same data as a previous run — reusing its ${existingRun.decisions.length} suggestion(s) instead of calling AI again.`,
+      message: `Discover found the same data as a previous run — reusing its ${pending.length} pending suggestion(s) instead of calling AI again.`,
       sourcesChecked: {
         vercel: vercelItems.length,
         github: githubItems.length,
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
       runId: existingRun.id,
       aiUsed: existingRun.aiUsed,
       reused: true,
-      decisions: existingRun.decisions,
+      decisions: enrichDecisions(pending, allItems),
     });
   }
 
@@ -101,6 +102,25 @@ export async function POST(req: Request) {
       reasoning: m.reasoning,
       confidence: m.confidence,
       method: m.method,
+    });
+  }
+
+  // Standalone items (no cross-source duplicate) never get a "matches" entry
+  // from reconcile() since that only groups items of length > 1 — but they
+  // still need a decision that actually creates the Project row. Without
+  // this, a standalone item could only ever get an assign_branch/field
+  // suggestion, both of which require the project to already exist and
+  // would fail forever with "apply the match suggestion first." Pushed
+  // before branch/field suggestions below so it's always applied first.
+  for (const item of result.standalone) {
+    decisionRows.push({
+      runId: run.id,
+      action: "match",
+      sourceItemIds: JSON.stringify([item.id]),
+      suggestion: JSON.stringify({ suggestedName: item.name }),
+      reasoning: "Only found in one source — nothing to merge it with.",
+      confidence: 1,
+      method: "standalone",
     });
   }
 
@@ -140,6 +160,10 @@ export async function POST(req: Request) {
     await prisma.aIDecision.createMany({ data: decisionRows });
   }
 
+  const createdDecisions = decisionRows.length
+    ? await prisma.aIDecision.findMany({ where: { runId: run.id } })
+    : [];
+
   return NextResponse.json({
     ok: true,
     message: `Found ${allItems.length} item(s) across sources. ${result.matches.length} match group(s), ${result.branchSuggestions.length} branch suggestion(s), ${result.fieldSuggestions.length} field suggestion(s).${result.aiUsed ? "" : ` (AI not used${result.aiError ? ": " + result.aiError : ""} — deterministic matching only.)`}`,
@@ -152,6 +176,41 @@ export async function POST(req: Request) {
     aiUsed: result.aiUsed,
     aiError: result.aiError,
     standaloneCount: result.standalone.length,
+    // Every standalone item (no cross-source match, no pending decision row)
+    // still needs to actually reach the registry — otherwise "Discover" can
+    // report "12 items found" while the table below shows nothing new.
+    standalone: result.standalone,
+    decisions: enrichDecisions(createdDecisions, allItems),
+  });
+}
+
+// Attaches the resolved DiscoveredItem[] + parsed suggestion to each raw
+// AIDecision row so the review UI can render names/urls/branches without a
+// second fetch or having to parse the run's stored JSON itself.
+function enrichDecisions(
+  decisions: {
+    id: string;
+    action: string;
+    sourceItemIds: string;
+    suggestion: string;
+    reasoning: string | null;
+    confidence: number;
+    method: string;
+  }[],
+  items: DiscoveredItem[],
+) {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  return decisions.map((d) => {
+    const itemIds: string[] = JSON.parse(d.sourceItemIds);
+    return {
+      id: d.id,
+      action: d.action,
+      items: itemIds.map((id) => byId.get(id)).filter(Boolean),
+      suggestion: JSON.parse(d.suggestion),
+      reasoning: d.reasoning,
+      confidence: d.confidence,
+      method: d.method,
+    };
   });
 }
 

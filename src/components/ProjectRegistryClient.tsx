@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Branch, Client, Project } from "@/lib/types";
 import { projectDrift } from "@/lib/analytics";
@@ -9,15 +10,51 @@ import { timeAgo, sourceLabel } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
 import { updateProjectBranchAction } from "@/app/actions";
 
-type DiscoveredRow = {
+type DiscoveredItem = {
+  id: string;
+  source: "vercel" | "github" | "supabase";
   name: string;
-  sources: string[]; // e.g. ["vercel", "github"] — merged if found in multiple feeds
-  accountLabels: string[];
+  accountLabel: string;
+  url?: string;
   status?: string;
-  liveUrl?: string;
-  repoUrl?: string;
+  description?: string;
+  language?: string;
   databaseRef?: string;
 };
+
+// One row per pending AIDecision returned by /api/discover: either "match"
+// (creates/merges a project), "assign_branch", "suggest_status", or
+// "suggest_description". Rendered generically since the shape only differs
+// in `suggestion`'s fields.
+type DecisionRow = {
+  id: string;
+  action: "match" | "assign_branch" | "suggest_status" | "suggest_description";
+  items: DiscoveredItem[];
+  suggestion: {
+    suggestedName?: string;
+    suggestedBranchName?: string;
+    suggestedStatus?: string;
+    suggestedDescription?: string;
+  };
+  reasoning?: string | null;
+  confidence: number;
+  method: string;
+};
+
+function decisionLabel(d: DecisionRow): string {
+  switch (d.action) {
+    case "match":
+      return d.items.length > 1
+        ? `Merge into "${d.suggestion.suggestedName}"`
+        : `Add "${d.suggestion.suggestedName}"`;
+    case "assign_branch":
+      return `Assign to ${d.suggestion.suggestedBranchName}`;
+    case "suggest_status":
+      return `Set status: ${d.suggestion.suggestedStatus}`;
+    case "suggest_description":
+      return `Set description: ${d.suggestion.suggestedDescription}`;
+  }
+}
 
 export default function ProjectRegistryClient({
   projects,
@@ -28,6 +65,7 @@ export default function ProjectRegistryClient({
   branches: Branch[];
   clients: Client[];
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -35,7 +73,8 @@ export default function ProjectRegistryClient({
   const [movingId, setMovingId] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [discoverMessage, setDiscoverMessage] = useState<string | null>(null);
-  const [discovered, setDiscovered] = useState<DiscoveredRow[] | null>(null);
+  const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   async function moveProject(projectId: string, branchId: string) {
     setMovingId(projectId);
@@ -60,62 +99,71 @@ export default function ProjectRegistryClient({
     return true;
   });
 
-  // Single "Discover" action replaces the three separate sync buttons — runs
-  // all three feeds in parallel and merges what each one found by project
-  // name, so a project seen in both Vercel and GitHub shows as one row.
+  // Single "Discover" action: POST /api/discover, which fetches Vercel +
+  // GitHub + Supabase in parallel, reconciles cross-source duplicates
+  // (exact/fuzzy name match, then AI for the rest), and returns every
+  // pending suggestion for review below. Nothing touches the Project table
+  // until a decision is explicitly approved via applyDecisions().
   async function runDiscover() {
     setDiscovering(true);
     setDiscoverMessage(null);
-    setDiscovered(null);
     try {
-      const [vercelRes, githubRes, supabaseRes] = await Promise.all(
-        (["vercel", "github", "supabase"] as const).map((s) =>
-          fetch(`/api/sync/${s}`, { method: "POST" })
-            .then((r) => r.json())
-            .catch(() => ({
-              ok: false,
-              message: `Could not reach the ${s} sync job.`,
-              discovered: [],
-            })),
-        ),
-      );
-
-      const merged = new Map<string, DiscoveredRow>();
-      const mergeIn = (source: string, items: any[]) => {
-        for (const item of items ?? []) {
-          const row: DiscoveredRow = merged.get(item.name) ?? {
-            name: item.name,
-            sources: [],
-            accountLabels: [],
-          };
-          row.sources.push(source);
-          const account = item.accountLabel ?? item.organizationId;
-          if (account && !row.accountLabels.includes(account))
-            row.accountLabels.push(account);
-          if (item.status) row.status = item.status;
-          if (item.liveUrl) row.liveUrl = item.liveUrl;
-          if (item.repoUrl) row.repoUrl = item.repoUrl;
-          if (item.databaseRef) row.databaseRef = item.databaseRef;
-          merged.set(item.name, row);
-        }
-      };
-      mergeIn("vercel", vercelRes.discovered);
-      mergeIn("github", githubRes.discovered);
-      mergeIn("supabase", supabaseRes.discovered);
-
-      setDiscovered(Array.from(merged.values()));
-      const messages = [
-        vercelRes.message,
-        githubRes.message,
-        supabaseRes.message,
-      ].filter(Boolean);
-      setDiscoverMessage(messages.join(" "));
-    } catch {
+      const res = await fetch("/api/discover", { method: "POST" });
+      const data = await res.json();
       setDiscoverMessage(
-        "Discovery failed — could not reach one or more sync jobs.",
+        data.message ?? (data.ok ? "Discover finished." : "Discover failed."),
       );
+      setDecisions(data.decisions ?? []);
+    } catch {
+      setDiscoverMessage("Discovery failed — could not reach /api/discover.");
     } finally {
       setDiscovering(false);
+    }
+  }
+
+  async function applyDecisions(ids: string[]) {
+    if (ids.length === 0) return;
+    setBusyIds((prev) => new Set([...prev, ...ids]));
+    try {
+      const res = await fetch("/api/discover/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisionIds: ids }),
+      });
+      const data = await res.json();
+      setDiscoverMessage(data.message);
+      setDecisions((prev) => (prev ?? []).filter((d) => !ids.includes(d.id)));
+      // Refetches this route's server components so the registry table below
+      // (and branch dashboards) reflect newly-created/updated projects
+      // immediately, without the founder needing a hard refresh.
+      router.refresh();
+    } finally {
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  }
+
+  async function rejectDecisions(ids: string[]) {
+    if (ids.length === 0) return;
+    setBusyIds((prev) => new Set([...prev, ...ids]));
+    try {
+      const res = await fetch("/api/discover/apply", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decisionIds: ids }),
+      });
+      const data = await res.json();
+      setDiscoverMessage(data.message);
+      setDecisions((prev) => (prev ?? []).filter((d) => !ids.includes(d.id)));
+    } finally {
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
     }
   }
 
@@ -187,89 +235,92 @@ export default function ProjectRegistryClient({
         )}
       </AnimatePresence>
 
-      {discovered && (
+      {decisions && (
         <div className="overflow-hidden rounded-lg border border-border">
+          <div className="flex items-center justify-between border-b border-border bg-panel-2 px-4 py-2">
+            <p className="text-xs text-text-faint">
+              {decisions.length} pending suggestion{decisions.length === 1 ? "" : "s"} — review before anything is saved.
+            </p>
+            {decisions.length > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => rejectDecisions(decisions.map((d) => d.id))}
+                  className="rounded-md border border-border px-2.5 py-1 text-xs text-text-muted hover:text-text"
+                >
+                  Reject all
+                </button>
+                <button
+                  onClick={() => applyDecisions(decisions.map((d) => d.id))}
+                  className="rounded-md border border-live/30 bg-live/10 px-2.5 py-1 text-xs text-live hover:bg-live/20"
+                >
+                  Apply all
+                </button>
+              </div>
+            )}
+          </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-panel-2 text-left text-xs text-text-faint">
-                <th className="px-4 py-2.5 font-medium">Project</th>
+                <th className="px-4 py-2.5 font-medium">Item(s)</th>
                 <th className="px-4 py-2.5 font-medium">Discovered from</th>
-                <th className="px-4 py-2.5 font-medium">Account</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Links</th>
-                <th className="px-4 py-2.5 font-medium">Branch</th>
+                <th className="px-4 py-2.5 font-medium">Suggestion</th>
+                <th className="px-4 py-2.5 font-medium">Confidence</th>
+                <th className="px-4 py-2.5 font-medium">Reasoning</th>
+                <th className="px-4 py-2.5 font-medium">Review</th>
               </tr>
             </thead>
             <tbody>
-              {discovered.map((d) => {
-                const proj = projects.find((p) => p.name === d.name);
+              {decisions.map((d) => {
+                const isBusy = busyIds.has(d.id);
                 return (
                   <tr
-                    key={d.name}
+                    key={d.id}
                     className="border-b border-border-soft last:border-0"
                   >
                     <td className="px-4 py-3 font-medium text-text">
-                      {d.name}
+                      {d.items.map((i) => i.name).join(" + ")}
                     </td>
                     <td className="px-4 py-3 font-mono text-[11px] text-text-faint">
-                      {d.sources.join(", ")}
+                      {Array.from(new Set(d.items.map((i) => i.source))).join(", ")}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-text">
+                      {decisionLabel(d)}
                     </td>
                     <td className="px-4 py-3 font-mono text-[11px] text-text-faint">
-                      {d.accountLabels.join(", ") || "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {d.status ? <StatusBadge status={d.status} /> : "—"}
+                      {Math.round(d.confidence * 100)}%
+                      {d.method === "ai" && <span className="ml-1 text-live/70">ai</span>}
                     </td>
                     <td className="px-4 py-3 text-[11px] text-text-faint">
-                      {d.liveUrl && (
-                        <a
-                          href={d.liveUrl}
-                          target="_blank"
-                          className="mr-2 hover:text-live"
-                        >
-                          live
-                        </a>
-                      )}
-                      {d.repoUrl && (
-                        <a
-                          href={d.repoUrl}
-                          target="_blank"
-                          className="mr-2 hover:text-live"
-                        >
-                          repo
-                        </a>
-                      )}
-                      {d.databaseRef && <span>{d.databaseRef}</span>}
-                      {!d.liveUrl && !d.repoUrl && !d.databaseRef && "—"}
+                      {d.reasoning ?? "—"}
                     </td>
                     <td className="px-4 py-3">
-                      {proj ? (
-                        <select
-                          value={proj.branchId ?? ""}
-                          disabled={movingId === proj.id}
-                          onChange={(e) => moveProject(proj.id, e.target.value)}
-                          className="rounded-md border border-border bg-panel-2 px-2 py-1 text-xs text-text-muted outline-none focus:border-live/50 disabled:opacity-50"
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => applyDecisions([d.id])}
+                          disabled={isBusy}
+                          className="rounded-md border border-live/30 bg-live/10 px-2 py-1 text-[11px] text-live hover:bg-live/20 disabled:opacity-50"
                         >
-                          {branches.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-[11px] text-text-faint">—</span>
-                      )}
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => rejectDecisions([d.id])}
+                          disabled={isBusy}
+                          className="rounded-md border border-border px-2 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
-              {discovered.length === 0 && (
+              {decisions.length === 0 && (
                 <tr>
                   <td
                     colSpan={6}
                     className="px-4 py-6 text-center text-xs text-text-faint"
                   >
-                    Nothing new discovered.
+                    Nothing new discovered — every synced item already matches the registry.
                   </td>
                 </tr>
               )}

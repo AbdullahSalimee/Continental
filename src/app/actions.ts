@@ -37,7 +37,10 @@ export async function updateProjectBranchAction(
     where: { projectId },
     data: { assignedBranchId: branchId },
   });
-  revalidatePath("/"); // adjust if the registry lives at a different route
+  // Registry lives at /projects and branch dashboards read the same Project
+  // table, so invalidate the whole tree rather than just "/" — otherwise a
+  // manual branch move looks like it "didn't stick" until a hard refresh.
+  revalidatePath("/", "layout");
 }
 
 export async function addExternalAccountAction(formData: FormData) {
