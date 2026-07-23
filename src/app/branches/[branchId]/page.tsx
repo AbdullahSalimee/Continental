@@ -15,11 +15,13 @@ import {
   getAccessGrants,
   addAuditLogEntry,
   getClients,
+  getBranches,
 } from "@/lib/store";
 import { canSeeDepartment } from "@/lib/rbac";
 import { money, timeAgo } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
 import HealthDot from "@/components/HealthDot";
+import BranchAssignSelect from "@/components/BranchAssignSelect";
 
 export default async function BranchDetailPage({
   params,
@@ -41,6 +43,119 @@ export default async function BranchDetailPage({
       branchDepartments(branchId),
     ]);
   const { health, reason } = healthInfo;
+
+  // Unassigned isn't a working branch — it's a holding pen for synced projects
+  // that haven't been placed yet, so it gets its own assign-focused view
+  // instead of the normal stats/team/clients layout.
+  if (branch.name === "Unassigned") {
+    const allBranches = (await getBranches()).filter(
+      (b) => b.name !== "Unassigned",
+    );
+    return (
+      <div className="space-y-6">
+        <div>
+          <Link
+            href="/"
+            className="text-xs text-text-faint hover:text-text-muted"
+          >
+            ← All branches
+          </Link>
+          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
+            {branch.name}
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-text-muted">
+            Projects discovered by sync that haven't been placed on a real
+            branch yet. Assigning one is the only manual step in the flow.
+          </p>
+        </div>
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-panel-2 text-left text-xs text-text-faint">
+                <th className="px-4 py-2.5 font-medium">Project</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Last update</th>
+                <th className="px-4 py-2.5 font-medium">Assign to</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projs.map((p) => (
+                <tr
+                  key={p.id}
+                  className="border-b border-border-soft last:border-0"
+                >
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/projects/${p.id}`}
+                      className="font-medium text-text hover:text-live"
+                    >
+                      {p.name}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={p.status} />
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-text-faint">
+                    {timeAgo(p.lastKnownUpdateAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <BranchAssignSelect
+                      projectId={p.id}
+                      currentBranchId={p.branchId}
+                      branches={allBranches}
+                    />
+                  </td>
+                </tr>
+              ))}
+              {projs.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-4 py-6 text-center text-xs text-text-faint"
+                  >
+                    Nothing waiting on assignment right now.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // Fiverr hasn't launched yet — show a placeholder instead of an empty-looking
+  // stats grid until there's actually something to report on.
+  if (
+    branch.name === "Fiverr" &&
+    projs.length === 0 &&
+    activePeople.length === 0
+  ) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <Link
+            href="/"
+            className="text-xs text-text-faint hover:text-text-muted"
+          >
+            ← All branches
+          </Link>
+          <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight">
+            {branch.name}
+          </h1>
+        </div>
+        <div className="rounded-lg border border-border-soft bg-panel/50 p-6 text-center">
+          <p className="text-sm text-text-muted">
+            {branch.focus || "Coming soon."}
+          </p>
+          <p className="mt-1 text-xs text-text-faint">
+            This branch hasn't launched yet — nothing to report until it has
+            projects or people.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const branchClients =
     branch.branchType === "no_clients"

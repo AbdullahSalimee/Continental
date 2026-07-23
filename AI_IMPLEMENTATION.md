@@ -459,10 +459,88 @@ Result banner after discover:
 
 ---
 
-## Token optimization tips for free-tier models
+## Known risks and issues with AI in this system
 
-1. **Use short field names** in prompts: `{n: "name", d: "description"}` instead of `{name: "...", description: "..."}`
-2. **Don't send full raw API responses** — extract only: name, description, URL, language
-3. **Use structured output** (JSON mode) — less token waste than natural language
-4. **Cache identical prompts** — same project names get same results
-5. **Rate limit**: add 200ms delay between calls if using free tier (stays under free rate limits)
+> These are concerns we identified. **For each one, think about how you would tackle it.** Do not implement without solving these first.
+
+---
+
+### 1. False merge — AI merges two genuinely different projects into one
+
+If AI thinks "Taste" (consumer app) and "Taste Pro" (enterprise version) are the same, the DB now has one corrupted record with sync stamps pointing to two different Vercel projects. This breaks drift detection, branch counts, everything downstream.
+
+**Think about:** How do you prevent AI from merging projects that just share a common prefix? How do you recover when it happens anyway?
+
+---
+
+### 2. False split — AI fails to match "AMS" with "academy-management-system" 
+
+The duplicate stays in the DB. The AI added latency but 0 value in this case.
+
+**Think about:** When is it better to accept a duplicate than risk a false merge? What confidence threshold should you set?
+
+---
+
+### 3. API downtime — AI provider goes down → whole discover is broken
+
+If OpenAI/Gemini/Anthropic has an outage, the "Discover" button stops working entirely. User can't sync anything.
+
+**Think about:** Should the system work without AI? If yes, how does the fallback behave?
+
+---
+
+### 4. Latency — each sync now waits 2-5 seconds for AI
+
+Current sync is instant (just fetches from APIs). Adding AI means every sync waits for a response.
+
+**Think about:** Should AI run synchronously during discover or as a background job? How does the user know it's working?
+
+---
+
+### 5. Non-deterministic — same data gives different results each time
+
+AI models don't guarantee the same output for the same input. Today "Taste" matches "taste-app", tomorrow it might not.
+
+**Think about:** How do you make AI decisions consistent? Should the system cache or lock past decisions?
+
+---
+
+### 6. Cost creep — free tier isn't free forever
+
+At 14+ projects with daily syncs, token usage piles up. Free tiers have rate limits and caps.
+
+**Think about:** What happens when you hit rate limits? How do you track token usage per sync run?
+
+---
+
+### 7. Data leakage — project names and repo URLs sent to third-party AI
+
+Project names, descriptions, GitHub repo URLs, Supabase project IDs — all sent to OpenAI/Gemini/Anthropic servers.
+
+**Think about:** Is this acceptable for business data? Should users be warned? Should there be a local/non-AI mode as default?
+
+---
+
+### 8. Prompt brittleness — small wording changes alter matching behavior
+
+One prompt change shifts what AI considers a match. Next month someone tweaks the prompt and suddenly "Al-Shifa" stops matching "al-shifa-clinic".
+
+**Think about:** How do you version, test, and validate prompts before deploying them?
+
+---
+
+### 9. Debugging hell — AI made a wrong match, how do you find and fix it?
+
+No stack trace. No code to read. Just a black box decision that left two projects merged incorrectly.
+
+**Think about:** What audit trail do you need to trace AI decisions? How does a user undo an AI action?
+
+---
+
+### 10. Over-reliance — user stops checking because "AI handles it"
+
+One bad merge sits unnoticed for weeks because the user assumes AI was correct. By the time they notice, downstream data is corrupted.
+
+**Think about:** How do you force user review without making the system annoying? What's the right balance between trust and verification?
+
+---

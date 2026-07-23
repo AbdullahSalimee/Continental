@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { isSuperadmin } from "@/lib/rbac";
 
 export async function loginAction(formData: FormData) {
   const email = String(formData.get("email") || "");
@@ -37,4 +38,29 @@ export async function updateProjectBranchAction(
     data: { assignedBranchId: branchId },
   });
   revalidatePath("/"); // adjust if the registry lives at a different route
+}
+
+export async function addExternalAccountAction(formData: FormData) {
+  const { role } = await requireCurrentUser();
+  if (!isSuperadmin(role))
+    throw new Error("Only superadmins can add external accounts.");
+
+  const platform = String(formData.get("platform") || "").trim();
+  const label = String(formData.get("label") || "").trim();
+  const vaultReference = String(formData.get("vaultReference") || "").trim();
+  const ownerPersonId = String(formData.get("ownerPersonId") || "").trim();
+
+  if (!platform || !label) throw new Error("Platform and label are required.");
+
+  // Intentionally never accepts a raw token/secret here — only a label and a
+  // pointer into wherever the real credential lives (Bitwarden, 1Password, etc).
+  await prisma.externalAccount.create({
+    data: {
+      platform,
+      label,
+      vaultReference: vaultReference || undefined,
+      ownerPersonId: ownerPersonId || undefined,
+    },
+  });
+  revalidatePath("/access");
 }
