@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 export interface DiscoveredItem {
   id: string; // stable within a single run, e.g. "vercel:0"
-  source: "vercel" | "github" | "supabase";
+  source: "vercel" | "github" | "supabase" | "netlify";
   name: string;
   accountLabel: string;
   url?: string;
@@ -46,9 +46,16 @@ export interface ReconciliationResult {
   aiError?: string;
 }
 
-// Deterministic hash of the normalized item set, used to cache/reuse an AI
-// decision instead of re-calling the model for an identical Discover run.
-export function hashItems(items: DiscoveredItem[]): string {
+// Deterministic hash of the normalized item set plus the current domain
+// list, used to cache/reuse an AI decision instead of re-calling the model
+// for an identical Discover run. Domain names are included so that adding,
+// renaming, or removing a branch invalidates the cache — otherwise a
+// re-run with the same source data would silently reuse suggestions
+// computed against a stale branch list.
+export function hashItems(
+  items: DiscoveredItem[],
+  domainNames: string[] = [],
+): string {
   const normalized = items
     .map(
       (i) =>
@@ -56,5 +63,9 @@ export function hashItems(items: DiscoveredItem[]): string {
     )
     .sort()
     .join("|");
-  return crypto.createHash("sha256").update(normalized).digest("hex");
+  const domainKey = [...domainNames].sort().join(",");
+  return crypto
+    .createHash("sha256")
+    .update(normalized + "||domains:" + domainKey)
+    .digest("hex");
 }

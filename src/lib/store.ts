@@ -351,8 +351,16 @@ const DOMAIN_NAME_RULES: { pattern: RegExp; domainName: string }[] = [
   { pattern: /\bfiverr\b/i, domainName: "Fiverr" },
 ];
 
-async function matchDomainByName(projectName: string): Promise<string | null> {
-  const rule = DOMAIN_NAME_RULES.find((r) => r.pattern.test(projectName));
+async function matchDomainByName(
+  projectName: string,
+  extraSignal?: string,
+): Promise<string | null> {
+  // Check the name first, then fall back to whatever other free-text signal
+  // is available (GitHub repo description, language, etc.) -- a repo named
+  // "meher" with "kdh" written only in its description previously could
+  // never match here, since only the name was ever tested.
+  const haystack = extraSignal ? `${projectName} ${extraSignal}` : projectName;
+  const rule = DOMAIN_NAME_RULES.find((r) => r.pattern.test(haystack));
   if (!rule) return null;
   const domain = await prisma.domain.findFirst({
     where: { name: rule.domainName },
@@ -370,9 +378,13 @@ export async function upsertProjectFromSync(input: {
   hostingPlatform?: string;
   syncSource: string;
   accountLabel: string;
+  domainMatchSignal?: string; // e.g. GitHub repo description/language -- extra free text to check for a branch keyword when the name alone doesn't say it
 }) {
   // Naming-convention match takes priority over the caller's default (usually "Unassigned").
-  const matchedDomainId = await matchDomainByName(input.name);
+  const matchedDomainId = await matchDomainByName(
+    input.name,
+    input.domainMatchSignal,
+  );
   const domainId = matchedDomainId ?? input.domainId;
 
   const existing = await prisma.project.findFirst({
@@ -387,6 +399,12 @@ export async function upsertProjectFromSync(input: {
     });
     const shouldReassign =
       matchedDomainId && currentDomain?.name === "Unassigned";
+    const mergedHosting = Array.from(
+      new Set([
+        ...(existing.hostingPlatform?.split(",").filter(Boolean) ?? []),
+        ...(input.hostingPlatform?.split(",").filter(Boolean) ?? []),
+      ]),
+    ).join(",");
     await prisma.project.update({
       where: { id: existing.id },
       data: {
@@ -394,6 +412,7 @@ export async function upsertProjectFromSync(input: {
         ...(input.status ? { status: input.status } : {}),
         ...(input.repoUrl ? { repoUrl: input.repoUrl } : {}),
         ...(input.databaseRef ? { databaseRef: input.databaseRef } : {}),
+        ...(mergedHosting ? { hostingPlatform: mergedHosting } : {}),
         ...(shouldReassign ? { domainId: matchedDomainId } : {}),
       },
     });

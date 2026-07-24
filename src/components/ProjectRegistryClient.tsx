@@ -10,52 +10,6 @@ import { timeAgo, sourceLabel } from "@/lib/format";
 import StatusBadge from "@/components/StatusBadge";
 import { updateProjectDomainAction } from "@/app/actions";
 
-type DiscoveredItem = {
-  id: string;
-  source: "vercel" | "github" | "supabase";
-  name: string;
-  accountLabel: string;
-  url?: string;
-  status?: string;
-  description?: string;
-  language?: string;
-  databaseRef?: string;
-};
-
-// One row per pending AIDecision returned by /api/discover: either "match"
-// (creates/merges a project), "assign_branch", "suggest_status", or
-// "suggest_description". Rendered generically since the shape only differs
-// in `suggestion`'s fields.
-type DecisionRow = {
-  id: string;
-  action: "match" | "assign_branch" | "suggest_status" | "suggest_description";
-  items: DiscoveredItem[];
-  suggestion: {
-    suggestedName?: string;
-    suggestedBranchName?: string;
-    suggestedStatus?: string;
-    suggestedDescription?: string;
-  };
-  reasoning?: string | null;
-  confidence: number;
-  method: string;
-};
-
-function decisionLabel(d: DecisionRow): string {
-  switch (d.action) {
-    case "match":
-      return d.items.length > 1
-        ? `Merge into "${d.suggestion.suggestedName}"`
-        : `Add "${d.suggestion.suggestedName}"`;
-    case "assign_branch":
-      return `Assign to ${d.suggestion.suggestedBranchName}`;
-    case "suggest_status":
-      return `Set status: ${d.suggestion.suggestedStatus}`;
-    case "suggest_description":
-      return `Set description: ${d.suggestion.suggestedDescription}`;
-  }
-}
-
 export default function ProjectRegistryClient({
   projects,
   domains,
@@ -73,8 +27,6 @@ export default function ProjectRegistryClient({
   const [movingId, setMovingId] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [discoverMessage, setDiscoverMessage] = useState<string | null>(null);
-  const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
-  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   async function moveProject(projectId: string, domainId: string) {
     setMovingId(projectId);
@@ -99,11 +51,10 @@ export default function ProjectRegistryClient({
     return true;
   });
 
-  // Single "Discover" action: POST /api/discover, which fetches Vercel +
-  // GitHub + Supabase in parallel, reconciles cross-source duplicates
-  // (exact/fuzzy name match, then AI for the rest), and returns every
-  // pending suggestion for review below. Nothing touches the Project table
-  // until a decision is explicitly approved via applyDecisions().
+  // Fully automated: fetches Vercel + GitHub + Supabase + Netlify,
+  // reconciles cross-source duplicates (exact/fuzzy, then AI for the
+  // rest), and applies every resulting decision immediately -- no review
+  // step. The registry table below refreshes right after.
   async function runDiscover() {
     setDiscovering(true);
     setDiscoverMessage(null);
@@ -113,57 +64,11 @@ export default function ProjectRegistryClient({
       setDiscoverMessage(
         data.message ?? (data.ok ? "Discover finished." : "Discover failed."),
       );
-      setDecisions(data.decisions ?? []);
+      router.refresh();
     } catch {
       setDiscoverMessage("Discovery failed — could not reach /api/discover.");
     } finally {
       setDiscovering(false);
-    }
-  }
-
-  async function applyDecisions(ids: string[]) {
-    if (ids.length === 0) return;
-    setBusyIds((prev) => new Set([...prev, ...ids]));
-    try {
-      const res = await fetch("/api/discover/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decisionIds: ids }),
-      });
-      const data = await res.json();
-      setDiscoverMessage(data.message);
-      setDecisions((prev) => (prev ?? []).filter((d) => !ids.includes(d.id)));
-      // Refetches this route's server components so the registry table below
-      // (and branch dashboards) reflect newly-created/updated projects
-      // immediately, without the founder needing a hard refresh.
-      router.refresh();
-    } finally {
-      setBusyIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
-    }
-  }
-
-  async function rejectDecisions(ids: string[]) {
-    if (ids.length === 0) return;
-    setBusyIds((prev) => new Set([...prev, ...ids]));
-    try {
-      const res = await fetch("/api/discover/apply", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decisionIds: ids }),
-      });
-      const data = await res.json();
-      setDiscoverMessage(data.message);
-      setDecisions((prev) => (prev ?? []).filter((d) => !ids.includes(d.id)));
-    } finally {
-      setBusyIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
     }
   }
 
@@ -234,100 +139,6 @@ export default function ProjectRegistryClient({
           </motion.p>
         )}
       </AnimatePresence>
-
-      {decisions && (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <div className="flex items-center justify-between border-b border-border bg-panel-2 px-4 py-2">
-            <p className="text-xs text-text-faint">
-              {decisions.length} pending suggestion{decisions.length === 1 ? "" : "s"} — review before anything is saved.
-            </p>
-            {decisions.length > 0 && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => rejectDecisions(decisions.map((d) => d.id))}
-                  className="rounded-md border border-border px-2.5 py-1 text-xs text-text-muted hover:text-text"
-                >
-                  Reject all
-                </button>
-                <button
-                  onClick={() => applyDecisions(decisions.map((d) => d.id))}
-                  className="rounded-md border border-live/30 bg-live/10 px-2.5 py-1 text-xs text-live hover:bg-live/20"
-                >
-                  Apply all
-                </button>
-              </div>
-            )}
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-panel-2 text-left text-xs text-text-faint">
-                <th className="px-4 py-2.5 font-medium">Item(s)</th>
-                <th className="px-4 py-2.5 font-medium">Discovered from</th>
-                <th className="px-4 py-2.5 font-medium">Suggestion</th>
-                <th className="px-4 py-2.5 font-medium">Confidence</th>
-                <th className="px-4 py-2.5 font-medium">Reasoning</th>
-                <th className="px-4 py-2.5 font-medium">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              {decisions.map((d) => {
-                const isBusy = busyIds.has(d.id);
-                return (
-                  <tr
-                    key={d.id}
-                    className="border-b border-border-soft last:border-0"
-                  >
-                    <td className="px-4 py-3 font-medium text-text">
-                      {d.items.map((i) => i.name).join(" + ")}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-text-faint">
-                      {Array.from(new Set(d.items.map((i) => i.source))).join(", ")}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-text">
-                      {decisionLabel(d)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-text-faint">
-                      {Math.round(d.confidence * 100)}%
-                      {d.method === "ai" && <span className="ml-1 text-live/70">ai</span>}
-                    </td>
-                    <td className="px-4 py-3 text-[11px] text-text-faint">
-                      {d.reasoning ?? "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => applyDecisions([d.id])}
-                          disabled={isBusy}
-                          className="rounded-md border border-live/30 bg-live/10 px-2 py-1 text-[11px] text-live hover:bg-live/20 disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => rejectDecisions([d.id])}
-                          disabled={isBusy}
-                          className="rounded-md border border-border px-2 py-1 text-[11px] text-text-muted hover:text-text disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {decisions.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-6 text-center text-xs text-text-faint"
-                  >
-                    Nothing new discovered — every synced item already matches the registry.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       <div className="overflow-hidden rounded-lg border border-border">
         <table className="w-full text-sm">

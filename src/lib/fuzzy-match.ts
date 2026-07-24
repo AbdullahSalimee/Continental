@@ -32,13 +32,26 @@ function levenshtein(a: string, b: string): number {
     for (let j = 1; j <= n; j++) {
       const temp = dp[j];
       dp[j] =
-        a[i - 1] === b[j - 1]
-          ? prev
-          : 1 + Math.min(prev, dp[j], dp[j - 1]);
+        a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
       prev = temp;
     }
   }
   return dp[n];
+}
+
+// Builds the initials of a multi-word name, e.g. "Iron Patriot Button" -> "ipb".
+// Splits on spaces/hyphens/underscores/camelCase boundaries so it works on
+// "Iron Patriot Button", "iron-patriot-button", and "IronPatriotButton" alike.
+function initials(name: string): string {
+  const withBoundaries = name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ");
+  const words = withBoundaries
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
+  if (words.length < 2) return ""; // acronym logic only makes sense for multi-word names
+  return words.map((w) => w[0]).join("");
 }
 
 // Similarity score 0..1. 1 = identical after normalization.
@@ -48,11 +61,35 @@ export function nameSimilarity(a: string, b: string): number {
   if (na === nb) return 1;
   if (na.length === 0 || nb.length === 0) return 0;
 
+  // Acronym/initials match (e.g. "ipb" vs "Iron Patriot Button", "academy
+  // management syatem" reduced to its shortform elsewhere). Checked on the
+  // ORIGINAL names (pre-normalize) since word boundaries matter here and
+  // normalizeName strips separators. A short name that's exactly the
+  // initials of a longer multi-word name is as strong a signal as an exact
+  // match — someone naming a Vercel/Supabase project "IPB" for "Iron
+  // Patriot Button" is deliberately using shorthand, not coincidence.
+  const shortRaw = a.length <= b.length ? a : b;
+  const longRaw = a.length <= b.length ? b : a;
+  const shortNorm = normalizeName(shortRaw);
+  if (shortNorm.length >= 2 && shortNorm.length <= 6) {
+    if (initials(longRaw) === shortNorm) return 0.95;
+  }
+
   // Substring containment (e.g. "amshq" contains "ams") is a strong signal.
+  // A containment where the short name lands on a clean word boundary in
+  // the long name (a real prefix/word match, like "academy" leading
+  // "academy management syatem") is a much stronger signal than an
+  // incidental mid-word substring — score it near the acronym tier instead
+  // of scaling down by length ratio, which unfairly punishes short-vs-long
+  // pairs like "academy" (7 chars) vs a 23-char full name.
   if (na.includes(nb) || nb.includes(na)) {
-    const longer = Math.max(na.length, nb.length);
-    const shorter = Math.min(na.length, nb.length);
-    return 0.75 + 0.2 * (shorter / longer);
+    const longer = na.length >= nb.length ? na : nb;
+    const shorter = na.length >= nb.length ? nb : na;
+    const isWordBoundaryMatch = longer.startsWith(shorter);
+    if (isWordBoundaryMatch && shorter.length >= 4) {
+      return 0.9;
+    }
+    return 0.75 + 0.2 * (shorter.length / longer.length);
   }
 
   const dist = levenshtein(na, nb);
@@ -74,8 +111,15 @@ export interface FuzzyMatchGroup {
 }
 
 // Groups items whose names are similar enough to plausibly be the same
-// project across sources. Greedy single-link clustering — fine at this
-// scale (tens of items per sync run, not thousands).
+// project across sources. Grows each cluster against ANY current member,
+// not just the first item added to it — plain single-link-to-anchor
+// clustering misses transitive chains (e.g. "academy" matches both
+// "Academy Management Syatem" AND "superioracademy" strongly, but the
+// latter two don't score high enough against EACH OTHER directly; without
+// checking against every member, whichever of them isn't compared to the
+// anchor first gets left out even though it's clearly the same project via
+// the middle item). Still fine at this scale (tens of items per sync run,
+// not thousands) — worst case is O(n^2) comparisons either way.
 export function fuzzyGroup(items: NamedItem[]): {
   groups: FuzzyMatchGroup[];
   ungrouped: NamedItem[];
@@ -88,21 +132,34 @@ export function fuzzyGroup(items: NamedItem[]): {
     const cluster: NamedItem[] = [items[i]];
     used.add(items[i].id);
 
-    for (let j = i + 1; j < items.length; j++) {
-      if (used.has(items[j].id)) continue;
-      const sim = nameSimilarity(items[i].name, items[j].name);
-      if (sim >= FUZZY_MATCH_THRESHOLD) {
-        cluster.push(items[j]);
-        used.add(items[j].id);
+    // Repeat until a full pass adds nothing new — lets a late addition
+    // (matched via some other member, not the anchor) pull in further
+    // items that only match IT, chaining transitively.
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (let j = i + 1; j < items.length; j++) {
+        if (used.has(items[j].id)) continue;
+        const matchesSomeMember = cluster.some(
+          (member) =>
+            nameSimilarity(member.name, items[j].name) >= FUZZY_MATCH_THRESHOLD,
+        );
+        if (matchesSomeMember) {
+          cluster.push(items[j]);
+          used.add(items[j].id);
+          grew = true;
+        }
       }
     }
 
     if (cluster.length > 1) {
-      // Confidence = weakest pairwise link in the cluster relative to the anchor.
+      // Confidence = weakest link between consecutive members in the order
+      // they were added — a reasonable proxy for "how strong is the
+      // chain" without recomputing full pairwise min over the cluster.
       const worst = Math.min(
         ...cluster
           .slice(1)
-          .map((c) => nameSimilarity(items[i].name, c.name)),
+          .map((c, idx) => nameSimilarity(cluster[idx].name, c.name)),
       );
       groups.push({
         itemIds: cluster.map((c) => c.id),

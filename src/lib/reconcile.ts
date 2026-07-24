@@ -1,5 +1,9 @@
 import { callGroqJSON, extractJSON, isAIConfigured } from "./ai";
-import { fuzzyGroup, nameSimilarity, FUZZY_MATCH_THRESHOLD } from "./fuzzy-match";
+import {
+  fuzzyGroup,
+  nameSimilarity,
+  FUZZY_MATCH_THRESHOLD,
+} from "./fuzzy-match";
 import type {
   DiscoveredItem,
   MatchSuggestion,
@@ -7,8 +11,6 @@ import type {
   FieldSuggestion,
   ReconciliationResult,
 } from "./discover-types";
-
-const KNOWN_DOMAINS = ["KDH", "Remakes Labs", "Fiverr"];
 
 // Orchestrates one Discover run:
 //   1. Exact-name grouping (free, instant) — is this the same project as
@@ -30,6 +32,7 @@ const KNOWN_DOMAINS = ["KDH", "Remakes Labs", "Fiverr"];
 //   branch or field suggestions.
 export async function reconcile(
   items: DiscoveredItem[],
+  domainNames: string[],
 ): Promise<ReconciliationResult> {
   const matches: MatchSuggestion[] = [];
   const domainSuggestions: DomainSuggestion[] = [];
@@ -69,7 +72,8 @@ export async function reconcile(
   const stillRemaining: DiscoveredItem[] = [];
   for (const item of remainingAfterExact) {
     const targetMatch = matches.find(
-      (m) => nameSimilarity(item.name, m.suggestedName) >= FUZZY_MATCH_THRESHOLD,
+      (m) =>
+        nameSimilarity(item.name, m.suggestedName) >= FUZZY_MATCH_THRESHOLD,
     );
     if (targetMatch) {
       targetMatch.itemIds.push(item.id);
@@ -117,7 +121,17 @@ export async function reconcile(
   // items are already matched so it never re-litigates a settled match —
   // it just skips the matching question for those and goes straight to
   // branch + field suggestions.
-  const groqInput = items;
+  //
+  // Batched into fixed-size chunks so a single call's JSON output (match +
+  // branch + field verdicts for every item) stays bounded regardless of
+  // total registry size -- an unbatched call over ~140 items previously
+  // exceeded max_tokens and got silently truncated (finish_reason: length),
+  // causing the whole run to fall back to deterministic-only matching.
+  const GROQ_BATCH_SIZE = Number(process.env.GROQ_BATCH_SIZE) || 15;
+  const batches: DiscoveredItem[][] = [];
+  for (let i = 0; i < items.length; i += GROQ_BATCH_SIZE) {
+    batches.push(items.slice(i, i + GROQ_BATCH_SIZE));
+  }
 
   const alreadyMatchedIds = new Set(
     items
@@ -125,13 +139,32 @@ export async function reconcile(
       .filter((id) => exactMatched.has(id) || fuzzyMatched.has(id)),
   );
 
-  const aiResult = await callGrokReconcile(
-    groqInput,
-    KNOWN_DOMAINS,
-    alreadyMatchedIds,
-  );
+  // Serialized, not parallel: TPM (tokens per minute) is a shared budget
+  // across concurrent requests too, so firing all batches via Promise.all
+  // stacks their token costs within the same second and can blow the quota
+  // even when each individual batch fits comfortably alone (this is what
+  // caused the 413 "Request too large... TPM" error). A small delay between
+  // calls keeps each request looking like a fresh, isolated call to Groq.
+  const batchResults: Awaited<ReturnType<typeof callGrokReconcile>>[] = [];
+  for (const batch of batches) {
+    const result = await callGrokReconcile(
+      batch,
+      domainNames,
+      alreadyMatchedIds,
+    );
+    batchResults.push(result);
+    if (batches.indexOf(batch) < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+  }
 
-  if (!aiResult.ok) {
+  // A single bad/oversized batch shouldn't sink the whole run -- items in a
+  // failed batch just fall through to standalone (still fully usable,
+  // reviewable, and re-triable on the next Discover click), while every
+  // other batch's real AI results still get applied.
+  const anySucceeded = batchResults.some((r) => r.ok);
+  const failedBatchCount = batchResults.filter((r) => !r.ok).length;
+  if (!anySucceeded) {
     const standalone = items.filter(
       (i) => !exactMatched.has(i.id) && !fuzzyMatched.has(i.id),
     );
@@ -141,8 +174,26 @@ export async function reconcile(
       domainSuggestions,
       fieldSuggestions,
       aiUsed: false,
-      aiError: aiResult.error,
+      aiError:
+        batchResults.find((r) => !r.ok)?.error ?? "All Groq batches failed",
     };
+  }
+
+  const aiResult: {
+    matches: MatchSuggestion[];
+    domainSuggestions: DomainSuggestion[];
+    fieldSuggestions: FieldSuggestion[];
+  } = {
+    matches: [],
+    domainSuggestions: [],
+    fieldSuggestions: [],
+  };
+  for (const r of batchResults) {
+    if (r.ok) {
+      aiResult.matches.push(...r.matches);
+      aiResult.domainSuggestions.push(...r.domainSuggestions);
+      aiResult.fieldSuggestions.push(...r.fieldSuggestions);
+    }
   }
 
   // Merge AI matches in — but ONLY for items that weren't already matched.
@@ -173,6 +224,10 @@ export async function reconcile(
     domainSuggestions,
     fieldSuggestions,
     aiUsed: true,
+    aiError:
+      failedBatchCount > 0
+        ? `${failedBatchCount} of ${batches.length} AI batch(es) failed and fell back to name-matching only for those items: ${batchResults.find((r) => !r.ok)?.error ?? ""}`
+        : undefined,
   };
 }
 

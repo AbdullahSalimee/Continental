@@ -45,11 +45,10 @@ export async function callGroqJSON(
           { role: "user", content: userPrompt },
         ],
         temperature: 0, // deterministic-as-possible; we still cache by input hash on top of this
-        max_tokens: 8000, // raised from 2000: every discovered item now goes
-        // through this call (match + branch + field verdicts), not just a
-        // small leftover subset, so the JSON response is much larger — 2000
-        // was silently truncating fieldSuggestions (last key in the schema)
-        // on runs with ~40+ items.
+        max_tokens: 16000, // headroom for a batch of ~50 items' worth of
+        // match+branch+field JSON; reconcile.ts caps batch size below this
+        // so a single call's output should never approach the model's real
+        // 32,768-token ceiling.
         response_format: { type: "json_object" }, // Groq/OpenAI-style forced JSON output
       }),
       signal: controller.signal,
