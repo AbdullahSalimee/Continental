@@ -71,6 +71,7 @@ export async function POST(req: Request) {
         syncSource: "supabase_api",
         accountLabel,
         databaseRef: `supabase:${sp.id}`,
+        platform: "supabase",
       });
 
       if (isNew) created++;

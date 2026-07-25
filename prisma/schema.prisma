@@ -134,6 +134,7 @@ model Project {
 
   owners       Person[]       @relation("ProjectOwners")
   syncStamps   SyncStamp[]
+  sources      ProjectSource[]
   inboxAccounts InboxAccount[]
   inboxMessages InboxMessage[]
 }
@@ -148,6 +149,24 @@ model SyncStamp {
   reachable        Boolean?
   assignedDomainId String? // which domain this project was placed in as of this sync (null = left Unassigned)
 }
+
+model ProjectSource {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id])
+  platform     String
+  accountLabel String
+  url          String?
+  region       String?
+  status       String?
+  description  String?
+  databaseRef  String?
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, platform, accountLabel])
+}
+
 
 // ── Module B: Unified Inbox ──────────────────────────────────────────────────
 

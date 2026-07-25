@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { nameSimilarity, FUZZY_MATCH_THRESHOLD } from "./fuzzy-match";
 import type {
   AccessGrant,
   AuditLogEntry,
@@ -148,6 +149,16 @@ function mapProject(p: any): Project {
       lastSeenAt: s.lastSeenAt.toISOString(),
       reachable: s.reachable,
     })),
+    sources: (p.sources ?? []).map((s: any) => ({
+      platform: s.platform,
+      accountLabel: s.accountLabel,
+      url: s.url ?? undefined,
+      region: s.region ?? undefined,
+      status: s.status ?? undefined,
+      description: s.description ?? undefined,
+      databaseRef: s.databaseRef ?? undefined,
+      lastSeenAt: s.lastSeenAt.toISOString(),
+    })),
   };
 }
 
@@ -155,6 +166,7 @@ const projectInclude = {
   owners: true,
   syncStamps: true,
   externalAccount: true,
+  sources: true,
 };
 
 export async function getProjects(): Promise<Project[]> {
@@ -376,24 +388,38 @@ export async function upsertProjectFromSync(input: {
   repoUrl?: string;
   databaseRef?: string;
   hostingPlatform?: string;
+  region?: string;
+  platform: string;
   syncSource: string;
   accountLabel: string;
-  domainMatchSignal?: string; // e.g. GitHub repo description/language -- extra free text to check for a branch keyword when the name alone doesn't say it
+  domainMatchSignal?: string;
+  sourceDescription?: string;
 }) {
-  // Naming-convention match takes priority over the caller's default (usually "Unassigned").
   const matchedDomainId = await matchDomainByName(
     input.name,
     input.domainMatchSignal,
   );
   const domainId = matchedDomainId ?? input.domainId;
 
-  const existing = await prisma.project.findFirst({
+  let existing = await prisma.project.findFirst({
     where: { name: { equals: input.name } },
   });
+  if (!existing) {
+    const candidates = await prisma.project.findMany({
+      select: { id: true, name: true },
+    });
+    const fuzzyHit = candidates.find(
+      (c) => nameSimilarity(input.name, c.name) >= FUZZY_MATCH_THRESHOLD,
+    );
+    if (fuzzyHit) {
+      existing = await prisma.project.findUnique({
+        where: { id: fuzzyHit.id },
+      });
+    }
+  }
   const now = new Date();
 
   if (existing) {
-    // Only move an existing project if it's still sitting in Unassigned — never override a human's manual assignment.
     const currentDomain = await prisma.domain.findUnique({
       where: { id: existing.domainId },
     });
@@ -416,6 +442,36 @@ export async function upsertProjectFromSync(input: {
         ...(shouldReassign ? { domainId: matchedDomainId } : {}),
       },
     });
+
+    await prisma.projectSource.upsert({
+      where: {
+        projectId_platform_accountLabel: {
+          projectId: existing.id,
+          platform: input.platform,
+          accountLabel: input.accountLabel,
+        },
+      },
+      update: {
+        url: input.liveUrl ?? input.repoUrl,
+        region: input.region,
+        status: input.status,
+        description: input.sourceDescription,
+        databaseRef: input.databaseRef,
+        lastSeenAt: now,
+      },
+      create: {
+        projectId: existing.id,
+        platform: input.platform,
+        accountLabel: input.accountLabel,
+        url: input.liveUrl ?? input.repoUrl,
+        region: input.region,
+        status: input.status,
+        description: input.sourceDescription,
+        databaseRef: input.databaseRef,
+        lastSeenAt: now,
+      },
+    });
+
     const finalDomainId = shouldReassign ? matchedDomainId : existing.domainId;
     const stamp = await prisma.syncStamp.findFirst({
       where: { projectId: existing.id, source: input.syncSource },
@@ -449,8 +505,6 @@ export async function upsertProjectFromSync(input: {
     data: {
       name: input.name,
       domainId,
-      // GitHub-only discovery tells us nothing about deployment state, so it
-      // shouldn't default to "live" like a Vercel-originated project would.
       status: input.status ?? "in_development",
       liveUrl: input.liveUrl,
       repoUrl: input.repoUrl,
@@ -467,6 +521,20 @@ export async function upsertProjectFromSync(input: {
             lastSeenAt: now,
             reachable: true,
             assignedDomainId: domainId,
+          },
+        ],
+      },
+      sources: {
+        create: [
+          {
+            platform: input.platform,
+            accountLabel: input.accountLabel,
+            url: input.liveUrl ?? input.repoUrl,
+            region: input.region,
+            status: input.status,
+            description: input.sourceDescription,
+            databaseRef: input.databaseRef,
+            lastSeenAt: now,
           },
         ],
       },

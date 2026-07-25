@@ -94,6 +94,8 @@ export async function POST(req: Request) {
         syncSource: "github_api",
         accountLabel: org ?? "github-org",
         repoUrl: repo.html_url,
+        platform: "github",
+        sourceDescription: repo.description ?? undefined,
       });
 
       if (isNew) created++;

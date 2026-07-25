@@ -127,7 +127,18 @@ export async function reconcile(
   // total registry size -- an unbatched call over ~140 items previously
   // exceeded max_tokens and got silently truncated (finish_reason: length),
   // causing the whole run to fall back to deterministic-only matching.
-  const GROQ_BATCH_SIZE = Number(process.env.GROQ_BATCH_SIZE) || 15;
+  //
+  // FIX (2nd pass): the actual bug wasn't batch size -- it was that
+  // callGroqJSON always reserved a flat max_tokens: 16000 against the TPM
+  // quota on every call regardless of batch size, since Groq counts
+  // max_tokens as RESERVED, not just what's actually generated. A real run
+  // showed a single 8-item batch requesting 16,948 tokens (16,000 reserved
+  // + ~950 prompt) against a 12,000 TPM limit -- failing on the very first
+  // call no matter how small the batch was. That's fixed in ai.ts now
+  // (max_tokens is sized per-batch below). Batch size stays small (8) so
+  // the PROMPT side also stays cheap, and the per-minute delay is computed
+  // from the real max_tokens this batch will request, not a guess.
+  const GROQ_BATCH_SIZE = Number(process.env.GROQ_BATCH_SIZE) || 8;
   const batches: DiscoveredItem[][] = [];
   for (let i = 0; i < items.length; i += GROQ_BATCH_SIZE) {
     batches.push(items.slice(i, i + GROQ_BATCH_SIZE));
@@ -139,22 +150,37 @@ export async function reconcile(
       .filter((id) => exactMatched.has(id) || fuzzyMatched.has(id)),
   );
 
-  // Serialized, not parallel: TPM (tokens per minute) is a shared budget
-  // across concurrent requests too, so firing all batches via Promise.all
-  // stacks their token costs within the same second and can blow the quota
-  // even when each individual batch fits comfortably alone (this is what
-  // caused the 413 "Request too large... TPM" error). A small delay between
-  // calls keeps each request looking like a fresh, isolated call to Groq.
+  // completion max_tokens per batch: ~150 tokens of JSON output per item
+  // (match+domain+field verdict) plus a fixed buffer for prompt overhead
+  // headroom -- deliberately generous per-item but NOT a flat 16000 no
+  // matter the batch size, since that reserved amount is what blew the
+  // quota. Env-overridable since real usage may need tuning per prompt size.
+  const TOKENS_PER_ITEM_COMPLETION =
+    Number(process.env.GROQ_TOKENS_PER_ITEM_OUT) || 150;
+  const maxTokensForBatch = GROQ_BATCH_SIZE * TOKENS_PER_ITEM_COMPLETION + 500;
+
+  // Serialized, not parallel, AND paced against the real per-minute budget.
+  // TPM accounting = prompt tokens (actual, ~150/item measured) + reserved
+  // max_tokens (the completion budget above) -- both count against quota.
+  const TPM_LIMIT = Number(process.env.GROQ_TPM_LIMIT) || 12000;
+  const TOKENS_PER_ITEM_PROMPT =
+    Number(process.env.GROQ_TOKENS_PER_ITEM_IN) || 150;
+  const promptTokensForBatch = GROQ_BATCH_SIZE * TOKENS_PER_ITEM_PROMPT + 300; // +300 system prompt overhead
+  const tokensPerBatch = promptTokensForBatch + maxTokensForBatch;
+  const batchesPerWindow = Math.max(1, Math.floor(TPM_LIMIT / tokensPerBatch));
+  const delayMs = Math.ceil(60_000 / batchesPerWindow) + 500; // +500ms safety margin
+
   const batchResults: Awaited<ReturnType<typeof callGrokReconcile>>[] = [];
   for (const batch of batches) {
     const result = await callGrokReconcile(
       batch,
       domainNames,
       alreadyMatchedIds,
+      maxTokensForBatch,
     );
     batchResults.push(result);
     if (batches.indexOf(batch) < batches.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
@@ -241,6 +267,7 @@ async function callGrokReconcile(
   items: DiscoveredItem[],
   domainNames: string[],
   alreadyMatchedIds: Set<string>,
+  maxTokens: number,
 ): Promise<
   ({ ok: true } & GroqReconcileOutput) | { ok: false; error: string }
 > {
@@ -274,7 +301,7 @@ Rules:
     })),
   );
 
-  const result = await callGroqJSON(systemPrompt, userPrompt);
+  const result = await callGroqJSON(systemPrompt, userPrompt, maxTokens);
   if (!result.ok || !result.text) {
     return { ok: false, error: result.error ?? "empty response from Groq" };
   }

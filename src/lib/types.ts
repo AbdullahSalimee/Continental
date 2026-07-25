@@ -117,6 +117,22 @@ export interface Project {
   // syncHistory is how we know which is which, and when it was last verified alive.
   syncHistory: SyncStamp[];
   source: "auto" | "manual" | "auto+manual";
+  // One entry per platform/account this project was actually found on --
+  // this is what lets a project show 2 deployment regions when it's on both
+  // Vercel and Netlify, instead of being limited to the single fixed fields
+  // above. Empty for manually-created projects with no sync history yet.
+  sources: ProjectSourceRecord[];
+}
+
+export interface ProjectSourceRecord {
+  platform: string;
+  accountLabel: string;
+  url?: string;
+  region?: string;
+  status?: string;
+  description?: string;
+  databaseRef?: string;
+  lastSeenAt: string;
 }
 
 // ---- Module B: Unified Inbox -----------------------------------------------

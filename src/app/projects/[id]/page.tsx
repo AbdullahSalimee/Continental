@@ -76,27 +76,6 @@ export default async function ProjectDetailPage({
           link={project.repoUrl}
           mono
         />
-        <Field
-          label="Hosting (Vercel)"
-          value={
-            project.hostingPlatform?.split(",").includes("vercel")
-              ? "vercel"
-              : undefined
-          }
-        />
-        <Field
-          label="Hosting (Netlify)"
-          value={
-            project.hostingPlatform?.split(",").includes("netlify")
-              ? "netlify"
-              : undefined
-          }
-        />
-        <Field
-          label="Hosting account"
-          value={project.hostingAccountLabel}
-          mono
-        />
         <Field label="Database" value={project.databaseRef} mono />
         <Field label="Client" value={client?.name} />
         <Field
@@ -112,6 +91,61 @@ export default async function ProjectDetailPage({
           label="Last known update"
           value={`${new Date(project.lastKnownUpdateAt).toLocaleDateString()} (${timeAgo(project.lastKnownUpdateAt)})`}
         />
+      </div>
+
+      {/* Not a fixed set of fields -- one card per platform/account this
+          project was actually found on. A project on both Vercel and
+          Netlify shows 2 cards, each with its own url/region/status; a
+          project seen nowhere else shows 1 (or 0 for manual entries). */}
+      <div>
+        <h2 className="mb-2 font-display text-sm font-semibold text-text-muted">
+          Sources ({project.sources.length})
+        </h2>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {project.sources.map((s, i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-border-soft bg-panel/50 p-3.5 text-sm"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs uppercase tracking-wide text-info">
+                  {sourceLabel(s.platform)}
+                </span>
+                <span className="text-[10px] text-text-faint">
+                  {s.accountLabel}
+                </span>
+              </div>
+              {s.url && (
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1.5 block truncate text-text-muted hover:text-live hover:underline"
+                >
+                  {s.url}
+                </a>
+              )}
+              {s.region && (
+                <div className="mt-1 text-xs text-text-faint">
+                  region: <span className="font-mono">{s.region}</span>
+                </div>
+              )}
+              {s.status && (
+                <div className="mt-1 text-xs text-text-faint">
+                  status: <span className="font-mono">{s.status}</span>
+                </div>
+              )}
+              <div className="mt-1.5 text-[10px] text-text-faint">
+                last seen {timeAgo(s.lastSeenAt)}
+              </div>
+            </div>
+          ))}
+          {project.sources.length === 0 && (
+            <p className="text-xs text-text-faint">
+              No platform sources recorded — manual entry only.
+            </p>
+          )}
+        </div>
       </div>
 
       {project.notes && (

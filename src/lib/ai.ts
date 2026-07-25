@@ -22,6 +22,7 @@ export function isAIConfigured(): boolean {
 export async function callGroqJSON(
   systemPrompt: string,
   userPrompt: string,
+  maxTokens: number = 4000,
 ): Promise<AICallResult> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
@@ -45,10 +46,14 @@ export async function callGroqJSON(
           { role: "user", content: userPrompt },
         ],
         temperature: 0, // deterministic-as-possible; we still cache by input hash on top of this
-        max_tokens: 16000, // headroom for a batch of ~50 items' worth of
-        // match+branch+field JSON; reconcile.ts caps batch size below this
-        // so a single call's output should never approach the model's real
-        // 32,768-token ceiling.
+        // FIX: this used to be a flat 16000 regardless of batch size. Groq's
+        // TPM limit counts max_tokens as RESERVED against the quota even
+        // when the actual completion is much shorter -- an 8-item batch
+        // whose real output needed ~1,000 tokens was still reserving 16,000
+        // against a 12,000/minute budget and got a 413 on the very first
+        // call, no matter how small the batch actually was. Caller now
+        // sizes this to the batch it's sending.
+        max_tokens: maxTokens,
         response_format: { type: "json_object" }, // Groq/OpenAI-style forced JSON output
       }),
       signal: controller.signal,

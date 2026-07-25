@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { upsertProjectFromSync } from "@/lib/store";
+import { extractDomainUrl } from "@/lib/extract-domain-url";
 import type { DiscoveredItem } from "@/lib/discover-types";
 
 // Applies a set of pending AIDecision rows -- shared by the manual
@@ -65,10 +66,46 @@ export async function applyDecisionIds(decisionIds: string[]) {
             ]
               .filter(Boolean)
               .join(",") || undefined,
+          platform: primary.source,
           syncSource: "ai_discover",
           accountLabel: primary.accountLabel,
           domainMatchSignal,
+          sourceDescription: primary.description,
         });
+
+        // Every item in the matched group gets its own ProjectSource row --
+        // upsertProjectFromSync above only wrote one (for `primary`), so a
+        // group of e.g. Vercel + Netlify + GitHub items needs the other two
+        // written here too. This is what lets the project page show 2
+        // deployment regions instead of 1.
+        for (const item of items) {
+          if (item.id === primary.id) continue;
+          await prisma.projectSource.upsert({
+            where: {
+              projectId_platform_accountLabel: {
+                projectId,
+                platform: item.source,
+                accountLabel: item.accountLabel,
+              },
+            },
+            update: {
+              url: item.url,
+              status: item.status,
+              description: item.description,
+              databaseRef: item.databaseRef,
+              lastSeenAt: new Date(),
+            },
+            create: {
+              projectId,
+              platform: item.source,
+              accountLabel: item.accountLabel,
+              url: item.url,
+              status: item.status,
+              description: item.description,
+              databaseRef: item.databaseRef,
+            },
+          });
+        }
 
         const canonicalKey = (suggestion.suggestedName ?? primary.name)
           .trim()
@@ -146,6 +183,38 @@ export async function applyDecisionIds(decisionIds: string[]) {
             ...(item.databaseRef ? { databaseRef: item.databaseRef } : {}),
           },
         });
+
+        // This is the real fix for "attaching a new account's project to an
+        // existing one doesn't add its own fields" -- the update above only
+        // touches the fixed Project columns; this writes/refreshes the
+        // per-platform row so this account's own url/status is kept
+        // separately from any other platform already attached.
+        await prisma.projectSource.upsert({
+          where: {
+            projectId_platform_accountLabel: {
+              projectId: target.id,
+              platform: item.source,
+              accountLabel: item.accountLabel,
+            },
+          },
+          update: {
+            url: item.url,
+            status: item.status,
+            description: item.description,
+            databaseRef: item.databaseRef,
+            lastSeenAt: new Date(),
+          },
+          create: {
+            projectId: target.id,
+            platform: item.source,
+            accountLabel: item.accountLabel,
+            url: item.url,
+            status: item.status,
+            description: item.description,
+            databaseRef: item.databaseRef,
+          },
+        });
+
         const existingStamp = await prisma.syncStamp.findFirst({
           where: {
             projectId: target.id,

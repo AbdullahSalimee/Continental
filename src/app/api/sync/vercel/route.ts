@@ -96,6 +96,8 @@ export async function POST(req: Request) {
           : undefined,
         syncSource: "vercel_api",
         accountLabel,
+        platform: "vercel",
+        region: latestDeployment?.regions?.[0],
       });
       discovered.push({ name: vp.name, status, accountLabel });
     }
