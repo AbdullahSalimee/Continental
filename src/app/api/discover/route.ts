@@ -242,13 +242,62 @@ export async function POST(req: Request) {
     : [];
 
   // Fully automated: apply every decision immediately, no review step.
-  const { applied, errors } = createdDecisions.length
+  const { applied, errors, rejected } = createdDecisions.length
     ? await applyDecisionIds(createdDecisions.map((d) => d.id))
-    : { applied: 0, errors: [] as string[] };
+    : { applied: 0, errors: [] as string[], rejected: [] as string[] };
 
   if (applied > 0) {
     revalidatePath("/", "layout");
   }
+
+  // Re-fetch post-apply so each decision row has its final status +
+  // targetProjectId, then resolve project names for display. This is the
+  // data the frontend needs to show "X merged into Y" per item, not just a
+  // one-line count -- the founders asked to see WHICH items merged with
+  // WHICH after clicking Discover, not just how many.
+  const finalDecisions = createdDecisions.length
+    ? await prisma.aIDecision.findMany({
+        where: { id: { in: createdDecisions.map((d) => d.id) } },
+      })
+    : [];
+  const projectIds = Array.from(
+    new Set(finalDecisions.map((d) => d.targetProjectId).filter(Boolean)),
+  ) as string[];
+  const projectNames = projectIds.length
+    ? await prisma.project.findMany({
+        where: { id: { in: projectIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const projectNameById = new Map(projectNames.map((p) => [p.id, p.name]));
+
+  const itemsById = new Map(newItems.map((i) => [i.id, i]));
+  const decisionSummary = finalDecisions.map((d) => {
+    let sourceItemIds: string[] = [];
+    let suggestion: any = {};
+    try {
+      sourceItemIds = JSON.parse(d.sourceItemIds);
+    } catch {}
+    try {
+      suggestion = JSON.parse(d.suggestion);
+    } catch {}
+    const sourceNames = sourceItemIds
+      .map((id) => itemsById.get(id))
+      .filter(Boolean)
+      .map((i) => `${i!.source}:${i!.name}`);
+    return {
+      action: d.action,
+      status: d.status, // "accepted" | "rejected" | "pending"
+      method: d.method,
+      confidence: d.confidence,
+      reasoning: d.reasoning,
+      sourceItems: sourceNames,
+      resultingProjectId: d.targetProjectId,
+      resultingProjectName: d.targetProjectId
+        ? projectNameById.get(d.targetProjectId)
+        : (suggestion.suggestedName ?? suggestion.suggestedBranchName ?? null),
+    };
+  });
 
   return NextResponse.json({
     ok: errors.length === 0,
@@ -264,6 +313,8 @@ export async function POST(req: Request) {
     aiError: result.aiError,
     applied,
     errors,
+    rejected,
+    decisions: decisionSummary,
   });
 }
 

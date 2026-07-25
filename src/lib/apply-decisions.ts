@@ -17,7 +17,7 @@ export async function applyDecisionIds(decisionIds: string[]) {
   });
 
   if (decisions.length === 0) {
-    return { applied: 0, errors: [] as string[] };
+    return { applied: 0, errors: [] as string[], rejected: [] as string[] };
   }
 
   const unassigned = await prisma.domain.findFirst({
@@ -26,8 +26,72 @@ export async function applyDecisionIds(decisionIds: string[]) {
 
   let applied = 0;
   const errors: string[] = [];
+  const rejected: string[] = [];
+
+  // Safety floor for AI-proposed multi-item merges. Deterministic matches
+  // (exact/fuzzy) are exempt -- they're proven safe by the clique-based
+  // clustering fix in fuzzy-match.ts, which requires every cluster member
+  // to mutually resemble every other, not just share a keyword. AI matches
+  // are a different risk: the model can propose a merge based on weak
+  // co-occurrence ("both mention KDH in their description") that isn't
+  // caught by any string-similarity check. Since there's no human review
+  // step before this applies, a below-floor AI match is rejected outright
+  // rather than trusted -- the prompt in reconcile.ts now explicitly tells
+  // the model not to do this, but this is the backstop in case it still
+  // does. A single-item AI match (attaching one new item into an existing
+  // project via a domain/status suggestion, not a cross-source identity
+  // merge) is unaffected -- this floor only applies to MERGING 2+ raw items
+  // into one project, which is the operation that can wrongly combine two
+  // real, distinct projects.
+  const AI_MATCH_CONFIDENCE_FLOOR = 0.75;
+
+  // Second, independent check: catches the case a confidence floor alone
+  // can't -- the AI being confidently wrong, not uncertain. Real example
+  // from testing: "kdh" + "Meher" merged at confidence 0.80 with reasoning
+  // "Both projects mention 'kdh' in their name or description" -- a high
+  // confidence score attached to reasoning that is, on its face, a
+  // domain-co-occurrence argument, not an identity argument. Rather than
+  // trust the number, this scans the model's OWN reasoning text for the
+  // literal pattern of that mistake and rejects regardless of confidence.
+  // Not exhaustive (a model could describe the same bad logic in wording
+  // this doesn't catch), but it directly closes the exact failure observed.
+  const DOMAIN_CONFLATION_PATTERNS = [
+    /both.{0,40}mention/i,
+    /both.{0,40}(project|item)s?.{0,30}(mention|contain|include)/i,
+    /similar names and .{0,30}(context|related)/i,
+    /same (domain|business|company|client)/i, // domain-level similarity, not identity
+  ];
+  function reasoningShowsDomainConflation(reasoning: string | null): boolean {
+    if (!reasoning) return false;
+    return DOMAIN_CONFLATION_PATTERNS.some((p) => p.test(reasoning));
+  }
 
   for (const decision of decisions) {
+    const itemCount =
+      decision.action === "match"
+        ? JSON.parse(decision.sourceItemIds).length
+        : 0;
+    const isMultiItemAIMatch =
+      decision.action === "match" && decision.method === "ai" && itemCount > 1;
+
+    if (
+      isMultiItemAIMatch &&
+      (decision.confidence < AI_MATCH_CONFIDENCE_FLOOR ||
+        reasoningShowsDomainConflation(decision.reasoning))
+    ) {
+      await prisma.aIDecision.update({
+        where: { id: decision.id },
+        data: { status: "rejected" },
+      });
+      rejected.push(
+        `Decision ${decision.id}: AI match rejected -- ${
+          decision.confidence < AI_MATCH_CONFIDENCE_FLOOR
+            ? `confidence ${decision.confidence} below safety floor (${AI_MATCH_CONFIDENCE_FLOOR})`
+            : "reasoning pattern matches known domain-vs-identity conflation bug"
+        }. Reasoning was: "${decision.reasoning ?? "(none)"}"`,
+      );
+      continue;
+    }
     try {
       const rawItems: DiscoveredItem[] = JSON.parse(decision.run.raw);
       const itemIds: string[] = JSON.parse(decision.sourceItemIds);
@@ -307,7 +371,7 @@ export async function applyDecisionIds(decisionIds: string[]) {
     }
   }
 
-  return { applied, errors };
+  return { applied, errors, rejected };
 }
 
 async function resolveProjectForItem(item: DiscoveredItem, runId: string) {

@@ -17,8 +17,12 @@ export function isAIConfigured(): boolean {
 }
 
 // Calls Groq with a system + user prompt, expecting a raw JSON string back.
-// Times out fast (10s) so a slow/down provider can't hang the whole Discover
-// request — callers should catch failures and fall back to fuzzy-only.
+// Timeout is generous (90s) because real completions for reconciliation
+// batches routinely take 20-40s+ -- this used to be 10s, which meant nearly
+// every AI call was aborted before Groq finished, silently falling back to
+// fuzzy-only matching on every run. Discover runs as a cron job / background
+// trigger, not in the hot path of a user click, so there's no UX reason to
+// cut this short. If Groq is genuinely down, 90s still bounds the wait.
 export async function callGroqJSON(
   systemPrompt: string,
   userPrompt: string,
@@ -30,7 +34,7 @@ export async function callGroqJSON(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), 90_000);
 
   try {
     const res = await fetch(GROQ_BASE_URL, {

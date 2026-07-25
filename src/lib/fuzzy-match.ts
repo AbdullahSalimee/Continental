@@ -132,19 +132,28 @@ export function fuzzyGroup(items: NamedItem[]): {
     const cluster: NamedItem[] = [items[i]];
     used.add(items[i].id);
 
-    // Repeat until a full pass adds nothing new — lets a late addition
-    // (matched via some other member, not the anchor) pull in further
-    // items that only match IT, chaining transitively.
+    // Repeat until a full pass adds nothing new. Requires a candidate to
+    // match EVERY current cluster member, not just one — a true clique,
+    // not a hub-and-spoke chain. This matters because a short generic name
+    // (e.g. "project") can score >=threshold against several genuinely
+    // unrelated names ("nestproject", "svelte-project", "weekly-project")
+    // individually, while those unrelated names don't resemble EACH OTHER
+    // at all (confirmed on real data: 0.62, well under 0.82). The old
+    // "matches ANY member" rule let "project" act as a false hub and chain
+    // all four together into one wrong group. Requiring a match against
+    // every member still catches genuine multi-way matches (e.g. "academy"
+    // / "Academy Management Syatem" / "superioracademy", which really are
+    // all similar to each other), just not hub-only chains.
     let grew = true;
     while (grew) {
       grew = false;
       for (let j = i + 1; j < items.length; j++) {
         if (used.has(items[j].id)) continue;
-        const matchesSomeMember = cluster.some(
+        const matchesEveryMember = cluster.every(
           (member) =>
             nameSimilarity(member.name, items[j].name) >= FUZZY_MATCH_THRESHOLD,
         );
-        if (matchesSomeMember) {
+        if (matchesEveryMember) {
           cluster.push(items[j]);
           used.add(items[j].id);
           grew = true;
@@ -153,14 +162,19 @@ export function fuzzyGroup(items: NamedItem[]): {
     }
 
     if (cluster.length > 1) {
-      // Confidence = weakest link between consecutive members in the order
-      // they were added — a reasonable proxy for "how strong is the
-      // chain" without recomputing full pairwise min over the cluster.
-      const worst = Math.min(
-        ...cluster
-          .slice(1)
-          .map((c, idx) => nameSimilarity(cluster[idx].name, c.name)),
-      );
+      // Confidence = true worst-case pairwise similarity across the whole
+      // cluster (not just consecutive-add order) — now that membership
+      // requires matching every other member, this is a meaningful "how
+      // tight is this group" number, not just a chain-order proxy.
+      let worst = 1;
+      for (let a = 0; a < cluster.length; a++) {
+        for (let b = a + 1; b < cluster.length; b++) {
+          worst = Math.min(
+            worst,
+            nameSimilarity(cluster[a].name, cluster[b].name),
+          );
+        }
+      }
       groups.push({
         itemIds: cluster.map((c) => c.id),
         suggestedName: shortestName(cluster.map((c) => c.name)),

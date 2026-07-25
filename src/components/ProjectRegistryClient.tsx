@@ -27,6 +27,18 @@ export default function ProjectRegistryClient({
   const [movingId, setMovingId] = useState<string | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [discoverMessage, setDiscoverMessage] = useState<string | null>(null);
+  const [discoverDecisions, setDiscoverDecisions] = useState<
+    Array<{
+      action: string;
+      status: string;
+      method: string;
+      confidence: number;
+      reasoning: string | null;
+      sourceItems: string[];
+      resultingProjectId: string | null;
+      resultingProjectName: string | null;
+    }>
+  >([]);
 
   async function moveProject(projectId: string, domainId: string) {
     setMovingId(projectId);
@@ -58,12 +70,14 @@ export default function ProjectRegistryClient({
   async function runDiscover() {
     setDiscovering(true);
     setDiscoverMessage(null);
+    setDiscoverDecisions([]);
     try {
       const res = await fetch("/api/discover", { method: "POST" });
       const data = await res.json();
       setDiscoverMessage(
         data.message ?? (data.ok ? "Discover finished." : "Discover failed."),
       );
+      setDiscoverDecisions(data.decisions ?? []);
       router.refresh();
     } catch {
       setDiscoverMessage("Discovery failed — could not reach /api/discover.");
@@ -139,6 +153,108 @@ export default function ProjectRegistryClient({
           </motion.p>
         )}
       </AnimatePresence>
+
+      {/* What just happened, broken out by what actually matters to look
+          at: merges (2+ items combined -- these are the ones worth a
+          second glance since a wrong merge is the costly failure mode),
+          new standalone items, and anything that errored applying. */}
+      {discoverDecisions.length > 0 && (
+        <div className="rounded-lg border border-border-soft bg-panel/60 p-3 text-xs">
+          {(() => {
+            const merges = discoverDecisions.filter(
+              (d) => d.sourceItems.length > 1 || d.action === "attach_existing",
+            );
+            const newStandalone = discoverDecisions.filter(
+              (d) =>
+                d.action === "match" &&
+                d.sourceItems.length <= 1 &&
+                d.method === "standalone",
+            );
+            const failed = discoverDecisions.filter(
+              (d) => d.status !== "accepted",
+            );
+            return (
+              <div className="space-y-3">
+                {merges.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 font-mono uppercase tracking-wide text-text-faint">
+                      Merged ({merges.length})
+                    </div>
+                    <div className="space-y-1">
+                      {merges.map((d, i) => (
+                        <div
+                          key={i}
+                          className="rounded border border-border-soft bg-panel px-2.5 py-1.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-text">
+                              {d.sourceItems.join("  +  ") || "(new item)"}
+                            </span>
+                            <span
+                              className={`font-mono ${d.confidence >= 0.9 ? "text-live" : d.confidence >= 0.7 ? "text-warn" : "text-text-faint"}`}
+                            >
+                              {d.method} · {d.confidence.toFixed(2)}
+                            </span>
+                          </div>
+                          {d.resultingProjectName && (
+                            <div className="mt-0.5 text-text-muted">
+                              →{" "}
+                              <span className="font-mono">
+                                {d.resultingProjectName}
+                              </span>
+                            </div>
+                          )}
+                          {d.reasoning && (
+                            <div className="mt-0.5 text-text-faint">
+                              {d.reasoning}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {newStandalone.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 font-mono uppercase tracking-wide text-text-faint">
+                      New, no match found ({newStandalone.length})
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {newStandalone.map((d, i) => (
+                        <span
+                          key={i}
+                          className="rounded border border-border-soft bg-panel px-2 py-1 font-mono text-text-muted"
+                        >
+                          {d.resultingProjectName ??
+                            d.sourceItems[0] ??
+                            "unknown"}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {failed.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 font-mono uppercase tracking-wide text-danger">
+                      Not applied ({failed.length})
+                    </div>
+                    <div className="space-y-1">
+                      {failed.map((d, i) => (
+                        <div
+                          key={i}
+                          className="rounded border border-danger/30 bg-danger/5 px-2.5 py-1.5 text-danger"
+                        >
+                          {d.sourceItems.join(", ")} — {d.action} ({d.status})
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-lg border border-border">
         <table className="w-full text-sm">

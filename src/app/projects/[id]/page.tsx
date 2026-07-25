@@ -7,6 +7,7 @@ import {
   getClients,
   getAccessGrants,
   getPeople,
+  getMergeHistoryForProject,
 } from "@/lib/store";
 import { projectDrift } from "@/lib/analytics";
 import { timeAgo, sourceLabel } from "@/lib/format";
@@ -22,12 +23,14 @@ export default async function ProjectDetailPage({
   const project = await getProjectById(id);
   if (!project) notFound();
 
-  const [domains, clients, accessGrants, people] = await Promise.all([
-    getDomains(),
-    getClients(),
-    getAccessGrants(),
-    getPeople(),
-  ]);
+  const [domains, clients, accessGrants, people, mergeHistory] =
+    await Promise.all([
+      getDomains(),
+      getClients(),
+      getAccessGrants(),
+      getPeople(),
+      getMergeHistoryForProject(project.id),
+    ]);
   const domain = domains.find((b) => b.id === project.domainId);
   const client = clients.find((c) => c.id === project.clientId);
   const owners = people.filter((p) => project.ownerPersonIds.includes(p.id));
@@ -143,6 +146,54 @@ export default async function ProjectDetailPage({
           {project.sources.length === 0 && (
             <p className="text-xs text-text-faint">
               No platform sources recorded — manual entry only.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* What actually got merged INTO this project and why -- distinct from
+          "Sources" above (which shows where it currently lives). This is
+          the decision trail: e.g. "superadmin-ams (github) attached here,
+          fuzzy match, confidence 0.90" -- so a merge is never a silent,
+          unexplained black box. */}
+      <div>
+        <h2 className="mb-2 font-display text-sm font-semibold text-text-muted">
+          Merge history ({mergeHistory.length})
+        </h2>
+        <div className="space-y-1.5">
+          {mergeHistory.map((m) => (
+            <div
+              key={m.id}
+              className="rounded-md border border-border-soft bg-panel/60 px-3 py-2 text-xs"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono uppercase tracking-wide text-info">
+                  {m.action === "attach_existing" ? "attached" : "merged"} ·{" "}
+                  {m.method}
+                </span>
+                <span
+                  className={`font-mono ${m.confidence >= 0.9 ? "text-live" : m.confidence >= 0.7 ? "text-warn" : "text-text-faint"}`}
+                >
+                  conf {m.confidence.toFixed(2)}
+                </span>
+              </div>
+              {m.suggestedName && (
+                <div className="mt-1 text-text-muted">
+                  as "{m.suggestedName}"
+                </div>
+              )}
+              {m.reasoning && (
+                <div className="mt-1 text-text-faint">{m.reasoning}</div>
+              )}
+              <div className="mt-1 text-[10px] text-text-faint">
+                {timeAgo(m.createdAt)}
+              </div>
+            </div>
+          ))}
+          {mergeHistory.length === 0 && (
+            <p className="text-xs text-text-faint">
+              No AI/fuzzy merge recorded — this project was created manually or
+              is a single-source standalone.
             </p>
           )}
         </div>

@@ -185,6 +185,54 @@ export async function getProjectById(id: string): Promise<Project | null> {
   return p ? mapProject(p) : null;
 }
 
+export interface MergeEvent {
+  id: string;
+  action: "match" | "attach_existing";
+  method: string; // "exact" | "fuzzy" | "ai" | "standalone"
+  confidence: number;
+  reasoning: string | null;
+  suggestedName: string | null;
+  createdAt: string;
+  runId: string;
+}
+
+// Every accepted match/attach_existing decision that built or grew this
+// project — i.e. "here's what got merged into this, and why". The data was
+// already being written on every Discover run (AIDecision.targetProjectId),
+// just never queried anywhere. Ordered oldest-first so the merge history
+// reads as a timeline of how this project's identity was assembled.
+export async function getMergeHistoryForProject(
+  projectId: string,
+): Promise<MergeEvent[]> {
+  const rows = await prisma.aIDecision.findMany({
+    where: {
+      targetProjectId: projectId,
+      action: { in: ["match", "attach_existing"] },
+      status: "accepted",
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((d) => {
+    let suggestedName: string | null = null;
+    try {
+      const s = JSON.parse(d.suggestion);
+      suggestedName = s.suggestedName ?? s.existingProjectName ?? null;
+    } catch {
+      // malformed historical row -- fine, just omit
+    }
+    return {
+      id: d.id,
+      action: d.action as "match" | "attach_existing",
+      method: d.method,
+      confidence: d.confidence,
+      reasoning: d.reasoning ?? null,
+      suggestedName,
+      createdAt: d.createdAt.toISOString(),
+      runId: d.runId,
+    };
+  });
+}
+
 export async function getInboxAccounts(): Promise<InboxAccount[]> {
   const rows = await prisma.inboxAccount.findMany();
   return rows.map((a) => ({
