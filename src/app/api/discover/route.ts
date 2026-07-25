@@ -407,7 +407,6 @@ function getGitHubAccounts() {
 }
 
 async function fetchGitHub(): Promise<DiscoveredItem[]> {
-<<<<<<< HEAD
   const accounts = getGitHubAccounts();
   const results = await Promise.all(
     accounts.map(async (acc, accIdx) => {
@@ -461,46 +460,6 @@ function getSupabaseAccounts() {
     const token = process.env[`SUPABASE_MANAGEMENT_TOKEN_${i}`];
     if (!token) continue;
     accounts.push({ token, label: process.env[`SUPABASE_ACCOUNT_LABEL_${i}`] });
-=======
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) return [];
-  try {
-    const org = process.env.GITHUB_ORG;
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-    };
-    let res = await fetch(
-      `https://api.github.com/orgs/${org}/repos?per_page=100`,
-      { headers, cache: "no-store" },
-    );
-    if (res.status === 404) {
-      res = await fetch(
-        `https://api.github.com/users/${org}/repos?per_page=100`,
-        { headers, cache: "no-store" },
-      );
-    }
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(
-        `[discover] GitHub fetch failed: ${res.status} ${body.slice(0, 300)}`,
-      );
-      return [];
-    }
-    const repos = await res.json();
-    return repos.map((repo: any, idx: number) => ({
-      id: `github:${idx}`,
-      source: "github" as const,
-      name: repo.name,
-      accountLabel: org ?? "github-org",
-      url: repo.html_url,
-      description: repo.description ?? undefined,
-      language: repo.language ?? undefined,
-    }));
-  } catch (err) {
-    console.error(`[discover] GitHub fetch threw:`, err);
-    return [];
->>>>>>> parent of 3a323ca (Add project review docs and Groq/Supabase support)
   }
   if (accounts.length === 0 && process.env.SUPABASE_MANAGEMENT_TOKEN) {
     accounts.push({ token: process.env.SUPABASE_MANAGEMENT_TOKEN });
