@@ -31,14 +31,14 @@ model Person {
   domains     Domain[]     @relation("PersonDomains")
   departments Department[] @relation("PersonDepartments")
 
-  ownedProjects        Project[]               @relation("ProjectOwners")
-  grantsReceived       AccessGrant[]           @relation("GrantsToPerson")
-  grantsIssued         AccessGrant[]           @relation("GrantsByPerson")
-  auditActions         AuditLogEntry[]         @relation("AuditActor")
-  profitEntries        ProfitEntry[]           @relation("ProfitRecordedBy")
-  focusNotes           DomainFocusNote[]       @relation("FocusNoteBy")
-  leadFlowLeads        LeadFlowLead[]          @relation("LeadOwner")
-  ownedExternalAccts   ExternalAccount[]       @relation("ExternalAccountOwner")
+  ownedProjects         Project[]               @relation("ProjectOwners")
+  grantsReceived        AccessGrant[]           @relation("GrantsToPerson")
+  grantsIssued          AccessGrant[]           @relation("GrantsByPerson")
+  auditActions          AuditLogEntry[]         @relation("AuditActor")
+  profitEntries         ProfitEntry[]           @relation("ProfitRecordedBy")
+  focusNotes            DomainFocusNote[]       @relation("FocusNoteBy")
+  leadFlowLeads         LeadFlowLead[]          @relation("LeadOwner")
+  ownedExternalAccts    ExternalAccount[]       @relation("ExternalAccountOwner")
   externalAccountAccess ExternalAccountAccess[]
 }
 
@@ -49,35 +49,35 @@ model Domain {
   name       String
   focus      String
   notes      String?
-  domainType String  @default("standard") // "standard" | "no_clients" — drives which fields/forms show per domain
+  domainType String   @default("standard") // "standard" | "no_clients" — drives which fields/forms show per domain
   createdAt  DateTime @default(now())
 
-  departments  Department[]
-  projects     Project[]
-  clients      Client[]
+  departments   Department[]
+  projects      Project[]
+  clients       Client[]
   profitEntries ProfitEntry[]
-  focusNote    DomainFocusNote?
-  people       Person[] @relation("PersonDomains")
+  focusNote     DomainFocusNote?
+  people        Person[]         @relation("PersonDomains")
 }
 
 model Department {
-  id               String  @id @default(cuid())
+  id               String    @id @default(cuid())
   domainId         String
-  domain           Domain  @relation(fields: [domainId], references: [id])
+  domain           Domain    @relation(fields: [domainId], references: [id])
   name             String
-  isRestricted     Boolean @default(false)
+  isRestricted     Boolean   @default(false)
   restrictedReason String?
   successMetric    String?
-  people           Person[] @relation("PersonDepartments")
+  people           Person[]  @relation("PersonDepartments")
   projects         Project[]
 }
 
 model Client {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
   domainId      String
-  domain        Domain   @relation(fields: [domainId], references: [id])
-  isOutOfDomain Boolean  @default(false)
+  domain        Domain    @relation(fields: [domainId], references: [id])
+  isOutOfDomain Boolean   @default(false)
   notes         String?
   projects      Project[]
 }
@@ -86,15 +86,15 @@ model Client {
 
 model ExternalAccount {
   id             String   @id @default(cuid())
-  platform       String   // vercel | github | supabase | google | other — open list
-  label          String   // e.g. "remake-labs+vercel1@gmail.com"
-  vaultReference String?  // link into Bitwarden/etc — never a raw secret
+  platform       String // vercel | github | supabase | google | other — open list
+  label          String // e.g. "remake-labs+vercel1@gmail.com"
+  vaultReference String? // link into Bitwarden/etc — never a raw secret
   ownerPersonId  String?
   owner          Person?  @relation("ExternalAccountOwner", fields: [ownerPersonId], references: [id])
   createdAt      DateTime @default(now())
 
-  projects    Project[]
-  accessList  ExternalAccountAccess[]
+  projects      Project[]
+  accessList    ExternalAccountAccess[]
   inboxAccounts InboxAccount[]
 }
 
@@ -110,51 +110,40 @@ model ExternalAccountAccess {
 }
 
 model Project {
-  id                 String    @id @default(cuid())
-  name               String
-  domainId           String
-  domain             Domain    @relation(fields: [domainId], references: [id])
-  departmentId       String?
-  department         Department? @relation(fields: [departmentId], references: [id])
-  liveUrl            String?
-  previewUrls        String?   // JSON-encoded string[]
-  hostingPlatform    String?
-  externalAccountId  String?
-  externalAccount    ExternalAccount? @relation(fields: [externalAccountId], references: [id])
-  repoUrl            String?
-  databaseRef        String?
-  status             String
-  clientId           String?
-  client             Client?   @relation(fields: [clientId], references: [id])
-  deliveryModel      String?
-  createdAt          DateTime  @default(now())
-  lastKnownUpdateAt  DateTime  @default(now())
-  notes              String?
-  source             String    // auto | manual | auto+manual
+  id                String           @id @default(cuid())
+  name              String
+  domainId          String
+  domain            Domain           @relation(fields: [domainId], references: [id])
+  departmentId      String?
+  department        Department?      @relation(fields: [departmentId], references: [id])
+  liveUrl           String?
+  previewUrls       String? // JSON-encoded string[]
+  hostingPlatform   String?
+  externalAccountId String?
+  externalAccount   ExternalAccount? @relation(fields: [externalAccountId], references: [id])
+  repoUrl           String?
+  databaseRef       String?
+  status            String
+  clientId          String?
+  client            Client?          @relation(fields: [clientId], references: [id])
+  deliveryModel     String?
+  createdAt         DateTime         @default(now())
+  lastKnownUpdateAt DateTime         @default(now())
+  notes             String?
+  source            String // auto | manual | auto+manual
 
-  owners       Person[]       @relation("ProjectOwners")
-  syncStamps   SyncStamp[]
-  sources      ProjectSource[]
-  inboxAccounts InboxAccount[]
-  inboxMessages InboxMessage[]
-}
-
-model SyncStamp {
-  id               String   @id @default(cuid())
-  projectId        String
-  project          Project  @relation(fields: [projectId], references: [id])
-  source           String   // vercel_api | github_api | supabase_api | manual
-  accountLabel     String
-  lastSeenAt       DateTime
-  reachable        Boolean?
-  assignedDomainId String? // which domain this project was placed in as of this sync (null = left Unassigned)
+  owners         Person[]        @relation("ProjectOwners")
+  syncStamps     SyncStamp[]
+  projectSources ProjectSource[]
+  inboxAccounts  InboxAccount[]
+  inboxMessages  InboxMessage[]
 }
 
 model ProjectSource {
   id           String   @id @default(cuid())
   projectId    String
-  project      Project  @relation(fields: [projectId], references: [id])
-  platform     String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  platform     String // "vercel" | "github" | "supabase" | "netlify"
   accountLabel String
   url          String?
   region       String?
@@ -167,35 +156,45 @@ model ProjectSource {
   @@unique([projectId, platform, accountLabel])
 }
 
+model SyncStamp {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id])
+  source           String // vercel_api | github_api | supabase_api | manual
+  accountLabel     String
+  lastSeenAt       DateTime
+  reachable        Boolean?
+  assignedDomainId String? // which domain this project was placed in as of this sync (null = left Unassigned)
+}
 
 // ── Module B: Unified Inbox ──────────────────────────────────────────────────
 
 model InboxAccount {
-  id                 String   @id @default(cuid())
+  id                 String           @id @default(cuid())
   label              String
-  strategy           String   // polling | forwarding
+  strategy           String // polling | forwarding
   linkedProjectId    String?
-  linkedProject      Project? @relation(fields: [linkedProjectId], references: [id])
+  linkedProject      Project?         @relation(fields: [linkedProjectId], references: [id])
   externalAccountId  String?
   externalAccount    ExternalAccount? @relation(fields: [externalAccountId], references: [id])
-  googleRefreshToken String?  // present once a real Gmail OAuth connection is completed
+  googleRefreshToken String? // present once a real Gmail OAuth connection is completed
   lastPolledAt       DateTime?
 
   messages InboxMessage[]
 }
 
 model InboxMessage {
-  id                 String    @id @default(cuid())
-  accountId          String
-  account            InboxAccount @relation(fields: [accountId], references: [id])
-  from               String
-  subject            String
-  snippet            String
-  receivedAt         DateTime
-  handled            Boolean   @default(false)
-  inferredProjectId  String?
-  inferredProject    Project?  @relation(fields: [inferredProjectId], references: [id])
-  gmailMessageId     String?   @unique
+  id                String       @id @default(cuid())
+  accountId         String
+  account           InboxAccount @relation(fields: [accountId], references: [id])
+  from              String
+  subject           String
+  snippet           String
+  receivedAt        DateTime
+  handled           Boolean      @default(false)
+  inferredProjectId String?
+  inferredProject   Project?     @relation(fields: [inferredProjectId], references: [id])
+  gmailMessageId    String?      @unique
 }
 
 // ── Module C: Domain Intelligence ───────────────────────────────────────────
@@ -226,17 +225,17 @@ model DomainFocusNote {
 // ── Module D: Access & Ownership ────────────────────────────────────────────
 
 model AccessGrant {
-  id                 String    @id @default(cuid())
-  personId           String
-  person             Person    @relation("GrantsToPerson", fields: [personId], references: [id])
-  targetType         String    // project | domain | department
-  targetId           String
-  level              String    // owner | editor | viewer
-  vaultReference     String?
-  grantedAt          DateTime  @default(now())
-  grantedByPersonId  String
-  grantedBy          Person    @relation("GrantsByPerson", fields: [grantedByPersonId], references: [id])
-  expiresAt          DateTime?
+  id                String    @id @default(cuid())
+  personId          String
+  person            Person    @relation("GrantsToPerson", fields: [personId], references: [id])
+  targetType        String // project | domain | department
+  targetId          String
+  level             String // owner | editor | viewer
+  vaultReference    String?
+  grantedAt         DateTime  @default(now())
+  grantedByPersonId String
+  grantedBy         Person    @relation("GrantsByPerson", fields: [grantedByPersonId], references: [id])
+  expiresAt         DateTime?
 }
 
 model AuditLogEntry {
@@ -250,17 +249,17 @@ model AuditLogEntry {
 }
 
 model DiscoverRun {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   inputHash   String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime     @default(now())
   triggeredBy String
-  aiUsed      Boolean  @default(false)
+  aiUsed      Boolean      @default(false)
   raw         String
   decisions   AIDecision[]
 }
 
 model AIDecision {
-  id              String   @id @default(cuid())
+  id              String      @id @default(cuid())
   runId           String
   run             DiscoverRun @relation(fields: [runId], references: [id])
   action          String
@@ -268,12 +267,11 @@ model AIDecision {
   suggestion      String
   reasoning       String?
   confidence      Float
-  method          String   @default("ai")
-  status          String   @default("pending")
+  method          String      @default("ai")
+  status          String      @default("pending")
   targetProjectId String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime    @default(now())
 }
-
 
 model LeadFlowLead {
   id            String   @id @default(cuid())

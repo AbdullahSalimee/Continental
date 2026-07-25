@@ -149,7 +149,7 @@ function mapProject(p: any): Project {
       lastSeenAt: s.lastSeenAt.toISOString(),
       reachable: s.reachable,
     })),
-    sources: (p.sources ?? []).map((s: any) => ({
+    sources: (p.projectSources ?? []).map((s: any) => ({
       platform: s.platform,
       accountLabel: s.accountLabel,
       url: s.url ?? undefined,
@@ -166,7 +166,7 @@ const projectInclude = {
   owners: true,
   syncStamps: true,
   externalAccount: true,
-  sources: true,
+  projectSources: true,
 };
 
 export async function getProjects(): Promise<Project[]> {
@@ -524,7 +524,7 @@ export async function upsertProjectFromSync(input: {
           },
         ],
       },
-      sources: {
+      projectSources: {
         create: [
           {
             platform: input.platform,
