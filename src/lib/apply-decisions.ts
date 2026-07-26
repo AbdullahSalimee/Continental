@@ -55,11 +55,35 @@ export async function applyDecisionIds(decisionIds: string[]) {
   // literal pattern of that mistake and rejects regardless of confidence.
   // Not exhaustive (a model could describe the same bad logic in wording
   // this doesn't catch), but it directly closes the exact failure observed.
+  const domainNames = (
+    await prisma.domain.findMany({ select: { name: true } })
+  ).map((d) => d.name);
+
+  // Third, structural safety layer -- independent of exact phrasing. If the
+  // AI's own reasoning for a MATCH (identity claim) literally names one of
+  // the company's real domains/branches as its justification (e.g. "Both
+  // are Remakes Labs related", "part of KDH"), that is definitionally a
+  // domain-assignment argument, not a same-product argument, regardless of
+  // how it's worded. This generalizes better than the regex patterns below,
+  // which only catch phrasings we've already seen go wrong.
+  function reasoningNamesADomain(reasoning: string | null): string | null {
+    if (!reasoning) return null;
+    for (const d of domainNames) {
+      if (d.length >= 3 && reasoning.toLowerCase().includes(d.toLowerCase())) {
+        return d;
+      }
+    }
+    return null;
+  }
+
   const DOMAIN_CONFLATION_PATTERNS = [
     /both.{0,40}mention/i,
-    /both.{0,40}(project|item)s?.{0,30}(mention|contain|include)/i,
+    /both.{0,40}(project|item)s?.{0,30}(mention|contain|include|reference)/i,
     /similar names and .{0,30}(context|related)/i,
     /same (domain|business|company|client)/i, // domain-level similarity, not identity
+    /both.{0,10}(are|is).{0,30}(related|associated|part of|belong)/i, // "both are Remakes Labs related"
+    /(part of|belong(s)? to|under) the same/i,
+    /share (the|a) (domain|business|brand|company)/i,
   ];
   function reasoningShowsDomainConflation(reasoning: string | null): boolean {
     if (!reasoning) return false;
@@ -74,21 +98,28 @@ export async function applyDecisionIds(decisionIds: string[]) {
     const isMultiItemAIMatch =
       decision.action === "match" && decision.method === "ai" && itemCount > 1;
 
+    const namedDomain = isMultiItemAIMatch
+      ? reasoningNamesADomain(decision.reasoning)
+      : null;
+
     if (
       isMultiItemAIMatch &&
       (decision.confidence < AI_MATCH_CONFIDENCE_FLOOR ||
-        reasoningShowsDomainConflation(decision.reasoning))
+        reasoningShowsDomainConflation(decision.reasoning) ||
+        namedDomain)
     ) {
       await prisma.aIDecision.update({
         where: { id: decision.id },
         data: { status: "rejected" },
       });
+      const reason =
+        decision.confidence < AI_MATCH_CONFIDENCE_FLOOR
+          ? `confidence ${decision.confidence} below safety floor (${AI_MATCH_CONFIDENCE_FLOOR})`
+          : namedDomain
+            ? `reasoning names the domain "${namedDomain}" as justification -- that's a domain-assignment argument, not a same-product argument`
+            : "reasoning pattern matches known domain-vs-identity conflation bug";
       rejected.push(
-        `Decision ${decision.id}: AI match rejected -- ${
-          decision.confidence < AI_MATCH_CONFIDENCE_FLOOR
-            ? `confidence ${decision.confidence} below safety floor (${AI_MATCH_CONFIDENCE_FLOOR})`
-            : "reasoning pattern matches known domain-vs-identity conflation bug"
-        }. Reasoning was: "${decision.reasoning ?? "(none)"}"`,
+        `Decision ${decision.id}: AI match rejected -- ${reason}. Reasoning was: "${decision.reasoning ?? "(none)"}"`,
       );
       continue;
     }

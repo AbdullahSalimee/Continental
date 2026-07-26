@@ -79,7 +79,6 @@ export default async function ProjectDetailPage({
           link={project.repoUrl}
           mono
         />
-        <Field label="Database" value={project.databaseRef} mono />
         <Field label="Client" value={client?.name} />
         <Field
           label="Delivery model"

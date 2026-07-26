@@ -241,12 +241,116 @@ export async function POST(req: Request) {
       })
     : [];
 
-  // Fully automated: apply every decision immediately, no review step.
   const { applied, errors, rejected } = createdDecisions.length
     ? await applyDecisionIds(createdDecisions.map((d) => d.id))
     : { applied: 0, errors: [] as string[], rejected: [] as string[] };
 
   if (applied > 0) {
+    revalidatePath("/", "layout");
+  }
+
+  // Retroactive pass: the checks above only compare NEWLY discovered items
+  // against already-existing projects, in one direction. They never
+  // re-compare two projects that both already existed from PAST separate
+  // runs -- e.g. a Supabase project "Academy Management Syatem" created on
+  // Monday and a GitHub-sourced "academy" created on Tuesday never get
+  // checked against each other, since neither run treats the other as "new
+  // data." This closes that gap, deterministic-only (no AI call, no extra
+  // cost) and restricted to projects with zero prior merge history, so a
+  // project someone has already reviewed/split apart doesn't get
+  // reconsidered on every run. Runs AFTER apply so it sees this run's own
+  // merges already committed, not a stale pre-apply project list.
+  const mergedIntoIds = new Set<string>();
+  const projectIdsWithHistory = new Set(
+    (
+      await prisma.aIDecision.findMany({
+        where: { targetProjectId: { not: null } },
+        select: { targetProjectId: true },
+        distinct: ["targetProjectId"],
+      })
+    ).map((d) => d.targetProjectId as string),
+  );
+  const unmergedProjects = (
+    await prisma.project.findMany({
+      select: { id: true, name: true },
+      orderBy: { createdAt: "asc" },
+    })
+  ).filter((p) => !projectIdsWithHistory.has(p.id));
+  const retroactiveMerges: {
+    keepId: string;
+    keepName: string;
+    mergeId: string;
+    mergeName: string;
+    method: string;
+    confidence: number;
+  }[] = [];
+  for (let i = 0; i < unmergedProjects.length; i++) {
+    if (mergedIntoIds.has(unmergedProjects[i].id)) continue;
+    for (let j = i + 1; j < unmergedProjects.length; j++) {
+      if (mergedIntoIds.has(unmergedProjects[j].id)) continue;
+      const a = unmergedProjects[i];
+      const b = unmergedProjects[j];
+      const exact = a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+      const sim = exact ? 1 : nameSimilarity(a.name, b.name);
+      if (exact || sim >= FUZZY_MATCH_THRESHOLD) {
+        retroactiveMerges.push({
+          keepId: a.id,
+          keepName: a.name,
+          mergeId: b.id,
+          mergeName: b.name,
+          method: exact ? "exact" : "fuzzy",
+          confidence: exact ? 1 : Number(sim.toFixed(2)),
+        });
+        mergedIntoIds.add(b.id);
+      }
+    }
+  }
+  for (const m of retroactiveMerges) {
+    // Move every ProjectSource off the older/duplicate project onto the
+    // keeper. Guards against the (projectId, platform, accountLabel)
+    // unique constraint by dropping the duplicate source if the keeper
+    // already has one from the same platform+account.
+    const movingSources = await prisma.projectSource.findMany({
+      where: { projectId: m.mergeId },
+    });
+    for (const src of movingSources) {
+      const collision = await prisma.projectSource.findUnique({
+        where: {
+          projectId_platform_accountLabel: {
+            projectId: m.keepId,
+            platform: src.platform,
+            accountLabel: src.accountLabel,
+          },
+        },
+      });
+      if (collision) {
+        await prisma.projectSource.delete({ where: { id: src.id } });
+      } else {
+        await prisma.projectSource.update({
+          where: { id: src.id },
+          data: { projectId: m.keepId },
+        });
+      }
+    }
+    await prisma.aIDecision.create({
+      data: {
+        runId: run.id,
+        action: "attach_existing",
+        sourceItemIds: JSON.stringify([]),
+        suggestion: JSON.stringify({
+          existingProjectId: m.keepId,
+          existingProjectName: m.keepName,
+        }),
+        reasoning: `Retroactive merge: pre-existing project "${m.mergeName}" (created in an earlier run) matches pre-existing project "${m.keepName}" by name and was never compared to it before.`,
+        confidence: m.confidence,
+        method: m.method,
+        status: "accepted",
+        targetProjectId: m.keepId,
+      },
+    });
+    await prisma.project.delete({ where: { id: m.mergeId } });
+  }
+  if (retroactiveMerges.length > 0) {
     revalidatePath("/", "layout");
   }
 
@@ -301,7 +405,13 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ok: errors.length === 0,
-    message: `Found ${allItems.length} item(s) across sources. Auto-applied ${applied} of ${createdDecisions.length} decision(s)${errors.length ? `, ${errors.length} error(s)` : ""}.${result.aiUsed ? "" : ` (AI not used${result.aiError ? ": " + result.aiError : ""} — deterministic matching only.)`}`,
+    message: `Found ${allItems.length} item(s) across sources. Auto-applied ${applied} of ${createdDecisions.length} decision(s)${errors.length ? `, ${errors.length} error(s)` : ""}${retroactiveMerges.length ? `. Also merged ${retroactiveMerges.length} pre-existing duplicate project(s) found on re-check` : ""}.${result.aiUsed ? "" : ` (AI not used${result.aiError ? ": " + result.aiError : ""} — deterministic matching only.)`}`,
+    retroactiveMerges: retroactiveMerges.map((m) => ({
+      keptProject: m.keepName,
+      mergedProject: m.mergeName,
+      method: m.method,
+      confidence: m.confidence,
+    })),
     sourcesChecked: {
       vercel: vercelItems.length,
       github: githubItems.length,
@@ -542,6 +652,8 @@ async function fetchSupabase(): Promise<DiscoveredItem[]> {
           accountLabel:
             acc.label ?? sp.organization_id ?? `supabase-${accIdx + 1}`,
           databaseRef: `supabase:${sp.id}`,
+          region: sp.region ?? undefined,
+          url: `https://supabase.com/dashboard/project/${sp.id}`,
         }));
       } catch (err) {
         console.error(
