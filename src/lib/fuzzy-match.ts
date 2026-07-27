@@ -97,7 +97,14 @@ export function nameSimilarity(a: string, b: string): number {
   return 1 - dist / maxLen;
 }
 
-export const FUZZY_MATCH_THRESHOLD = 0.82;
+// Lowered from 0.82 to 0.50 at explicit user request, to catch short-prefix
+// cases like "ams" vs "ams-backups" (0.81, just under the old threshold).
+// KNOWN TRADEOFF, confirmed with the user before this change: at 0.50, some
+// genuinely unrelated real pairs from this account also cross the bar and
+// will auto-merge with no review step -- e.g. "ai-page" vs "landing-page"
+// scores 0.55. If unexpected merges start showing up in the "Merged"
+// results after Discover runs, this is the first place to check.
+export const FUZZY_MATCH_THRESHOLD = 0.5;
 
 export interface NamedItem {
   id: string;
